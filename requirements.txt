@@ -1,0 +1,1 @@
+-e git+https://github.com/PetrDlouhy/django-payments@payu_changes#egg=django-payments  # change to regular django-payments after it has all changes pulled
