@@ -14,7 +14,7 @@ Django payments payu
 
 NOTE: This project is still in development, so use with extreme caution.
 
-PayU payments provider for django-payments
+PayU payments provider for django-payments. Uses the new PayU REST API. Supports normal, express and recurring payments.
 
 Documentation
 -------------
