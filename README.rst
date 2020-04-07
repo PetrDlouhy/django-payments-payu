@@ -11,6 +11,9 @@ Django payments payu
 .. image:: https://codecov.io/gh/PetrDlouhy/django-payments-payu/branch/master/graph/badge.svg
     :target: https://codecov.io/gh/PetrDlouhy/django-payments-payu
 
+
+NOTE: This project is still in development, so use with extreme caution.
+
 PayU payments provider for django-payments
 
 Documentation
