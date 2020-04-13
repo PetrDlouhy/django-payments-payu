@@ -58,11 +58,15 @@ Additional settings:
 
    PayU requires users first name, last name and email. Override ether ``get_user`` or ``get_user_email``, ``get_user_first_name`` and ``get_user_last_name`` methods from ``BasePayment``.
 
+   NOTE: notifications about the payment status from PayU are requested to be sent to `django-payments` `process_payment` url. The request from PayU can fail for several reasons (i.e. it can be blocked by proxy). Use "Show reports" page in PayU administration to get more information about the requests.
+
 
 **Recurring payments**:
 
    If recurring payments are enabled, the PayU card token needs to be stored in your application for usage in next payments. The next payments can be either initiated by user through (user will be prompted only for payment confirmation by the express form) or by server.
    To enable recurring payments, you will need to set additional things:
+
+   NOTE: Recurring payments are not enabled by default even in Sandbox, you sould consult their helpdesk to enable this.
 
    * In order to make payments recurring, the card token needs to be stored for the ``Payment``'s user (not just the payment itself). Implement the ``Payment.set_renew_token()`` and ``Payment.get_renew_token()``.
    * Implement ``Payment.get_payment_url()``.
