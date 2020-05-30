@@ -38,6 +38,7 @@ Install `django-payments <https://github.com/mirumee/django-payments>`_ and set 
    :param recurring_payments: enable recurring payments, only valid with ``express_payments=True``, see bellow for additional setup, that is needed
    :param express_payments: use PayU express form
    :param widget_branding: tell express form to show PayU branding
+   :param store_card: (default: False) whether PayU should store the card
 
 
 Example::

@@ -43,14 +43,16 @@ CURRENCY_SUB_UNIT = {
 CENTS = Decimal('0.01')
 
 
-def quantize_price(price):
-    return price.quantize(CENTS, rounding=ROUND_HALF_UP)
+def quantize_price(price, currency):
+    price = price * CURRENCY_SUB_UNIT[currency]
+    return int(price.quantize(CENTS, rounding=ROUND_HALF_UP))
 
 
 # A bit hacky method, how to get PayU javascript into the form
 class ScriptField(forms.HiddenInput):
-    def __init__(self, script_params, payment, *args, **kwargs):
+    def __init__(self, script_params, payu_base_url, payment, *args, **kwargs):
         self.script_params = script_params
+        self.payu_base_url = payu_base_url
         self.payment = payment
         return super(ScriptField, self).__init__(*args, **kwargs)
 
@@ -58,7 +60,7 @@ class ScriptField(forms.HiddenInput):
         super(ScriptField, self).render(name, value, attrs)
         inline_code = format_html(
             "<script "
-            "src='https://secure.snd.payu.com/front/widget/js/payu-bootstrap.js' "
+            f"src='{self.payu_base_url}front/widget/js/payu-bootstrap.js' "
             "pay-button='#pay-button' {} >"
             "</script>",
             " ".join('%s=%s' % (k, v) for k, v in self.script_params.items()),
@@ -98,9 +100,10 @@ class WidgetPaymentForm(PaymentForm):
     hide_submit_button = True  # For easy use in templates
     script = forms.CharField(label="Script")
 
-    def __init__(self, script_params={}, *args, **kwargs):
+    def __init__(self, payu_base_url, script_params={}, *args, **kwargs):
         ret = super(WidgetPaymentForm, self).__init__(*args, **kwargs)
         self.fields['script'].widget = ScriptField(
+            payu_base_url=payu_base_url,
             script_params=script_params,
             payment=self.payment,
         )
@@ -136,6 +139,7 @@ class PayuProvider(BasicProvider):
         self.payu_api_order_url = urljoin(self.payu_api_url, "orders/")
         self.payu_api_paymethods_url = urljoin(self.payu_api_url, "paymethods/")
         self.payu_widget_branding = kwargs.pop('widget_branding', False)
+        self.payu_store_card = kwargs.pop('store_card', False)
         self.grant_type = kwargs.pop('grant_type', 'client_credentials')
         self.recurring_payments = kwargs.pop('recurring_payments', False)
 
@@ -199,13 +203,13 @@ class PayuProvider(BasicProvider):
         else:
             payu_data.update({
                 "customer-email": payment.get_user_email(),
-                "store-card": "true",
+                "store-card": str(self.payu_store_card).lower(),
                 "payu-brand": str(self.payu_widget_branding).lower(),
             })
             if self.recurring_payments:
                 payu_data["recurring-payment"] = "true"
         payu_data['sig'] = self.get_sig(payu_data)
-        return WidgetPaymentForm(data=data, script_params=payu_data, provider=self, payment=payment)
+        return WidgetPaymentForm(payu_base_url=self.payu_base_url, data=data, script_params=payu_data, provider=self, payment=payment)
 
     def get_processor(self, payment):
         order = payment.get_purchased_items()
@@ -258,11 +262,11 @@ class PayuProvider(BasicProvider):
             ):
                 try:
                     self.token = self.get_access_token(self.pos_id, self.client_secret, grant_type=self.grant_type)
-                except PayuApiError:
+                except PayuApiError as e:
                     pass
             else:
                 return response_dict
-        raise PayuApiError("Unable to regain authorization token")
+        raise PayuApiError(f"Unable to regain authorization token {e}")
 
     def get_access_token(
             self,
@@ -491,11 +495,11 @@ class PaymentProcessor(object):
         order_items = self.get_order_items()
         for i in order_items:
             total += i['unitPrice'] * i['quantity']
-            i['subUnit'] = int(quantize_price(CURRENCY_SUB_UNIT[self.currency]))
-            i['unitPrice'] = int(quantize_price(i['unitPrice']))
+            i['subUnit'] = int(CURRENCY_SUB_UNIT[self.currency])
+            i['unitPrice'] = quantize_price(i['unitPrice'], self.currency)
             products.append(i)
 
-        self.total = int(quantize_price((total * CURRENCY_SUB_UNIT[self.currency])))
+        self.total = quantize_price(total, self.currency)
 
         json_dict = {
             'notifyUrl': self.notify_url,

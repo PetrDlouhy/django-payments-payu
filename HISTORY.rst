@@ -3,6 +3,12 @@
 History
 -------
 
+0.3.0 (2020-04-13)
+++++++++++++++++++
+* fix amount quantization
+* add store_card parameter
+* fix base url parameter for express form
+
 0.2.0 (2020-04-13)
 ++++++++++++++++++
 * Second release
