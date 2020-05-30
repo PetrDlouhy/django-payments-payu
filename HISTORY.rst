@@ -3,7 +3,7 @@
 History
 -------
 
-0.3.0 (2020-04-13)
+0.3.0 (2020-05-30)
 ++++++++++++++++++
 * fix amount quantization
 * add store_card parameter
