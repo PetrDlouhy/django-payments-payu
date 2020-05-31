@@ -209,7 +209,13 @@ class PayuProvider(BasicProvider):
             if self.recurring_payments:
                 payu_data["recurring-payment"] = "true"
         payu_data['sig'] = self.get_sig(payu_data)
-        return WidgetPaymentForm(payu_base_url=self.payu_base_url, data=data, script_params=payu_data, provider=self, payment=payment)
+        return WidgetPaymentForm(
+            payu_base_url=self.payu_base_url,
+            data=data,
+            script_params=payu_data,
+            provider=self,
+            payment=payment,
+        )
 
     def get_processor(self, payment):
         order = payment.get_purchased_items()
@@ -263,10 +269,10 @@ class PayuProvider(BasicProvider):
                 try:
                     self.token = self.get_access_token(self.pos_id, self.client_secret, grant_type=self.grant_type)
                 except PayuApiError as e:
-                    pass
+                    raise PayuApiError(f"Unable to regain authorization token {e}")
             else:
                 return response_dict
-        raise PayuApiError(f"Unable to regain authorization token {e}")
+        raise PayuApiError(f"Unable to regain authorization token")
 
     def get_access_token(
             self,
