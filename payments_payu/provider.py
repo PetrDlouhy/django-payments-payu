@@ -343,15 +343,17 @@ class PayuProvider(BasicProvider):
         try:
             payment.transaction_id = response_dict['orderId']
 
+            if 'payMethods' in response_dict:
+                payment.set_renew_token(
+                    response_dict['payMethods']['payMethod']['value'],
+                    card_expire_year=response_dict['payMethods']['payMethod']['card']['expirationYear'],
+                    card_expire_month=response_dict['payMethods']['payMethod']['card']['expirationMonth'],
+                    card_masked_number=response_dict['payMethods']['payMethod']['card']['number'],
+                )
+            payment.extra_data = json.dumps({'card_response': response_dict}, indent=2)
+            payment.save()
+
             if response_dict['status']['statusCode'] == u'SUCCESS':
-                if 'payMethods' in response_dict:
-                    payment.set_renew_token(
-                        response_dict['payMethods']['payMethod']['value'],
-                        card_expire_year=response_dict['payMethods']['payMethod']['card']['expirationYear'],
-                        card_expire_month=response_dict['payMethods']['payMethod']['card']['expirationMonth'],
-                    )
-                payment.extra_data = json.dumps({'card_response': response_dict}, indent=2)
-                payment.save()
                 if 'redirectUri' in response_dict:
                     payment.pay_link = response_dict['redirectUri']
                     payment.save()
