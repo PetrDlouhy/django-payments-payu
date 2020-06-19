@@ -119,6 +119,26 @@ class RenewPaymentForm(PaymentForm):
         return ret
 
 
+class HtmlOutputField(forms.HiddenInput):
+    def __init__(self, *args, html='', **kwargs):
+        self.html = html
+        return super(HtmlOutputField, self).__init__(*args, **kwargs)
+
+    def render(self, *args, **kwargs):
+        return self.html
+
+
+class PaymentErrorForm(forms.Form):
+    script = forms.CharField(
+        widget=HtmlOutputField(
+            html='<br/><strong>This payment is allready being processed.<br/>'
+            'Please create new payment.</strong>',
+        ),
+    )
+    hide_submit_button = True
+    error_form = True
+
+
 class PayuApiError(Exception):
     pass
 
@@ -209,6 +229,10 @@ class PayuProvider(BasicProvider):
             if self.recurring_payments:
                 payu_data["recurring-payment"] = "true"
         payu_data['sig'] = self.get_sig(payu_data)
+
+        if payment.status != PaymentStatus.WAITING:
+            return PaymentErrorForm()
+
         return WidgetPaymentForm(
             payu_base_url=self.payu_base_url,
             data=data,
@@ -433,10 +457,10 @@ class PayuProvider(BasicProvider):
                 status = data['order']['status']
                 status_map = {
                     'COMPLETED': PaymentStatus.CONFIRMED,
-                    'PENDING': PaymentStatus.WAITING,
-                    'WAITING_FOR_CONFIRMATION': PaymentStatus.WAITING,
+                    'PENDING': PaymentStatus.INPUT,
+                    'WAITING_FOR_CONFIRMATION': PaymentStatus.INPUT,
                     'CANCELED': PaymentStatus.REJECTED,
-                    'NEW': '',
+                    'NEW': PaymentStatus.WAITING,
                 }
                 payment.change_status(status_map[status])
                 return HttpResponse("ok", status=200)
@@ -512,9 +536,7 @@ class PaymentProcessor(object):
         json_dict = {
             'notifyUrl': self.notify_url,
             'customerIp': self.customer_ip,
-            # 'extOrderId': self.external_id,
-            # NOTE: extOrderId prevents the payment from being submitted twice, which generates error,
-            # that is can't be easily displayed to user, so we left it blank.
+            'extOrderId': self.external_id,
             'merchantPosId': self.pos_id,
             'description': self.description,
             'currencyCode': self.currency,
