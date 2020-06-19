@@ -48,25 +48,31 @@ def quantize_price(price, currency):
     return int(price.quantize(CENTS, rounding=ROUND_HALF_UP))
 
 
-# A bit hacky method, how to get PayU javascript into the form
-class ScriptField(forms.HiddenInput):
-    def __init__(self, script_params, payu_base_url, payment, *args, **kwargs):
-        self.script_params = script_params
-        self.payu_base_url = payu_base_url
-        self.payment = payment
-        return super(ScriptField, self).__init__(*args, **kwargs)
+# A bit hacky method, how to get html output instead of form (for PayU express form and error form)
+class HtmlOutputField(forms.HiddenInput):
+    def __init__(self, *args, html='', **kwargs):
+        self.html = html
+        return super(HtmlOutputField, self).__init__(*args, **kwargs)
 
-    def render(self, name, value, script_params={}, attrs=None, renderer=None):
-        super(ScriptField, self).render(name, value, attrs)
+    def render(self, *args, **kwargs):
+        return self.html
+
+
+class WidgetPaymentForm(PaymentForm):
+    hide_submit_button = True  # For easy use in templates
+    script = forms.CharField(label="Script")
+
+    def __init__(self, payu_base_url, script_params={}, *args, **kwargs):
+        ret = super(WidgetPaymentForm, self).__init__(*args, **kwargs)
         inline_code = format_html(
             "<script "
-            f"src='{self.payu_base_url}front/widget/js/payu-bootstrap.js' "
+            f"src='{payu_base_url}front/widget/js/payu-bootstrap.js' "
             "pay-button='#pay-button' {} >"
             "</script>",
-            " ".join('%s=%s' % (k, v) for k, v in self.script_params.items()),
+            " ".join('%s=%s' % (k, v) for k, v in script_params.items()),
         )
 
-        return inline_code + """
+        form_html = inline_code + """
             <script>
                 function cardSuccess($data) {
                     console.log('callback');
@@ -94,19 +100,7 @@ class ScriptField(forms.HiddenInput):
                 self.payment.get_success_url(),
             ),
         )
-
-
-class WidgetPaymentForm(PaymentForm):
-    hide_submit_button = True  # For easy use in templates
-    script = forms.CharField(label="Script")
-
-    def __init__(self, payu_base_url, script_params={}, *args, **kwargs):
-        ret = super(WidgetPaymentForm, self).__init__(*args, **kwargs)
-        self.fields['script'].widget = ScriptField(
-            payu_base_url=payu_base_url,
-            script_params=script_params,
-            payment=self.payment,
-        )
+        self.fields['script'].widget = HtmlOutputField(html=form_html)
         return ret
 
 
@@ -117,15 +111,6 @@ class RenewPaymentForm(PaymentForm):
         ret = super(RenewPaymentForm, self).__init__(*args, **kwargs)
         self.action = urljoin(get_base_url(), self.payment.get_process_url())
         return ret
-
-
-class HtmlOutputField(forms.HiddenInput):
-    def __init__(self, *args, html='', **kwargs):
-        self.html = html
-        return super(HtmlOutputField, self).__init__(*args, **kwargs)
-
-    def render(self, *args, **kwargs):
-        return self.html
 
 
 class PaymentErrorForm(forms.Form):
