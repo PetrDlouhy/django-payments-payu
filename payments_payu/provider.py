@@ -179,6 +179,9 @@ class PayuProvider(BasicProvider):
             pay_link = self.create_order(payment, self.get_processor(payment))
             raise RedirectNeeded(pay_link)
 
+        if payment.status != PaymentStatus.WAITING:
+            return PaymentErrorForm()
+
         cvv_url = None
         if payment.extra_data:
             extra_data = json.loads(payment.extra_data)
@@ -214,9 +217,6 @@ class PayuProvider(BasicProvider):
             if self.recurring_payments:
                 payu_data["recurring-payment"] = "true"
         payu_data['sig'] = self.get_sig(payu_data)
-
-        if payment.status != PaymentStatus.WAITING:
-            return PaymentErrorForm()
 
         return WidgetPaymentForm(
             payu_base_url=self.payu_base_url,
