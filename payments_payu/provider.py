@@ -312,7 +312,11 @@ class PayuProvider(BasicProvider):
             'Content-Type': 'application/x-www-form-urlencoded',
         }
         response = requests.post(payu_auth_url, data=data, headers=headers)
-        response_dict = json.loads(response.text)
+
+        try:
+            response_dict = json.loads(response.text)
+        except json.JSONDecodeError:
+            raise PayuApiError(response.text)
 
         try:
             return response_dict['access_token']
