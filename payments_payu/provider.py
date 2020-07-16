@@ -116,8 +116,7 @@ class RenewPaymentForm(PaymentForm):
 class PaymentErrorForm(forms.Form):
     script = forms.CharField(
         widget=HtmlOutputField(
-            html='<br/><strong>This payment is already being processed.<br/>'
-            'Please create new payment.</strong>',
+            html='<br/><strong>This payment is already being processed.<br/></strong>',
         ),
     )
     hide_submit_button = True
