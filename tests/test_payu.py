@@ -87,10 +87,11 @@ class Payment(Mock):
     def get_user_email(self):
         return "foo@bar.com"
 
-    def set_renew_token(self, token, card_expire_year=None, card_expire_month=None):
+    def set_renew_token(self, token, card_expire_year=None, card_expire_month=None, card_masked_number=None):
         self.token = token
         self.card_expire_year = card_expire_year
         self.card_expire_month = card_expire_month
+        self.card_masked_number = card_masked_number
 
 
 class TestPayuProvider(TestCase):
@@ -147,7 +148,7 @@ class TestPayuProvider(TestCase):
                 "orderId": 123,
                 "payMethods": {"payMethod": {
                     "value": 1211,
-                    "card": {"expirationYear": 2021, "expirationMonth": 1},
+                    "card": {"expirationYear": 2021, "expirationMonth": 1, "number": "1234xxx"},
                 }},
             })
             post.status_code = 200
@@ -156,6 +157,9 @@ class TestPayuProvider(TestCase):
                 self.provider.get_form(payment=self.payment)
             self.assertEqual(context.exception.args[0], 'test_redirect_uri')
             self.assertEqual(self.payment.token, 1211)
+            self.assertEqual(self.payment.card_expire_year, 2021)
+            self.assertEqual(self.payment.card_expire_month, 1)
+            self.assertEqual(self.payment.card_masked_number, "1234xxx")
 
     def test_redirect_payu_unknown_status(self):
         self.set_up_provider(True, False)
@@ -182,8 +186,9 @@ class TestPayuProvider(TestCase):
                     },
                         "description": "payment", "totalAmount": 20000, "merchantPosId": "123abc", "customerIp": "123",
                         "notifyUrl": "https://example.com/process_url/token",
+                        "extOrderId": "bar_token",
                         "products": [
-                            {"currency": "USD", "name": "foo", "quantity": 10, "unitPrice": 20, "subUnit": 100},
+                            {"currency": "USD", "name": "foo", "quantity": 10, "unitPrice": 2000, "subUnit": 100},
                         ],
                         "continueUrl": "http://foo_succ.com", "currencyCode": "USD",
                     },
@@ -215,8 +220,9 @@ class TestPayuProvider(TestCase):
                     },
                         "description": "payment", "totalAmount": 20000, "merchantPosId": "123abc", "customerIp": "123",
                         "notifyUrl": "https://example.com/process_url/token",
+                        "extOrderId": "bar_token",
                         "products": [
-                            {"currency": "USD", "name": "foo", "quantity": 10, "unitPrice": 20, "subUnit": 100},
+                            {"currency": "USD", "name": "foo", "quantity": 10, "unitPrice": 2000, "subUnit": 100},
                         ],
                         "continueUrl": "http://foo_succ.com", "currencyCode": "USD",
                     },
@@ -237,7 +243,7 @@ class TestPayuProvider(TestCase):
             mocked_post.return_value = post
             with self.assertRaises(PayuApiError) as context:
                 self.provider.get_form(payment=self.payment)
-            self.assertEqual(context.exception.args[0], "Unable to regain authorization token")
+            self.assertEqual(context.exception.args[0], "Unable to regain authorization token {'redirectUri': 'test_redirect_uri', 'status': {'statusCode': 'UNAUTHORIZED'}, 'orderId': 123}")
 
             mocked_post.assert_called_with(
                 'http://mock.url/pl/standard/user/oauth/authorize',
@@ -289,8 +295,9 @@ class TestPayuProvider(TestCase):
                     {
                         "products":
                         [
-                            {"currency": "USD", "quantity": 10, "name": "foo", "unitPrice": 20, "subUnit": 100}
+                            {"currency": "USD", "quantity": 10, "name": "foo", "unitPrice": 2000, "subUnit": 100}
                         ],
+                        "extOrderId": "bar_token",
                         "buyer": {
                             "phone": None, "email": "foo@bar.com", "lastName": "Bar", "language": "en", "firstName": "Foo",
                         },
@@ -341,7 +348,8 @@ class TestPayuProvider(TestCase):
                         "buyer": {"lastName": "Bar", "phone": None, "email": "foo@bar.com", "firstName": "Foo", "language": "en"},
                         "description": "payment", "notifyUrl": "https://example.com/process_url/token", "totalAmount": 20000,
                         "currencyCode": "USD",
-                        "products": [{"name": "foo", "quantity": 10, "subUnit": 100, "currency": "USD", "unitPrice": 20}],
+                        "extOrderId": "bar_token",
+                        "products": [{"name": "foo", "quantity": 10, "subUnit": 100, "currency": "USD", "unitPrice": 2000}],
                         "customerIp": "123"
                     },
                 ),
@@ -454,7 +462,8 @@ class TestPayuProvider(TestCase):
                     {
                         "recurring": "FIRST", "customerIp": "123", "totalAmount": 20000,
                         "description": "payment",
-                        "products": [{"name": "foo", "subUnit": 100, "currency": "USD", "unitPrice": 20, "quantity": 10}],
+                        "extOrderId": None,
+                        "products": [{"name": "foo", "subUnit": 100, "currency": "USD", "unitPrice": 2000, "quantity": 10}],
                         "continueUrl": "http://foo_succ.com", "merchantPosId": "123abc", "currencyCode": "USD",
                         "payMethods": {"payMethod": {"value": "renew_token", "type": "CARD_TOKEN"}},
                         "buyer": {"firstName": "Foo", "email": "foo@bar.com", "language": "en", "phone": None, "lastName": "Bar"},
@@ -484,8 +493,9 @@ class TestPayuProvider(TestCase):
                     {
                         "products":
                         [
-                            {"currency": "USD", "quantity": 10, "name": "foo", "unitPrice": 20, "subUnit": 100}
+                            {"currency": "USD", "quantity": 10, "name": "foo", "unitPrice": 2000, "subUnit": 100}
                         ],
+                        "extOrderId": "bar_token",
                         "buyer": {
                             "phone": None, "email": "foo@bar.com", "lastName": "Bar", "language": "en", "firstName": "Foo",
                         },
@@ -523,8 +533,9 @@ class TestPayuProvider(TestCase):
                     {
                         "products":
                         [
-                            {"currency": "USD", "quantity": 10, "name": "foo", "unitPrice": 20, "subUnit": 100}
+                            {"currency": "USD", "quantity": 10, "name": "foo", "unitPrice": 2000, "subUnit": 100}
                         ],
+                        "extOrderId": "bar_token",
                         "buyer": {
                             "phone": None, "email": "foo@bar.com", "lastName": "Bar", "language": "en", "firstName": "Foo",
                         },
