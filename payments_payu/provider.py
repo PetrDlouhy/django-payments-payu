@@ -291,7 +291,7 @@ class PayuProvider(BasicProvider):
                     raise PayuApiError(f"Unable to regain authorization token {e}")
             else:
                 return response_dict
-        raise PayuApiError(f"Unable to regain authorization token")
+        raise PayuApiError("Unable to regain authorization token")
 
     def get_access_token(
             self,
