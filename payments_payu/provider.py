@@ -42,6 +42,14 @@ CURRENCY_SUB_UNIT = {
 
 CENTS = Decimal('0.01')
 
+def add_extra_data(payment, new_extra_data):
+    if payment.extra_data:
+        old_extra_data = json.loads(payment.extra_data)
+    else:
+        old_extra_data = {}
+    extra_data = {**old_extra_data, **new_extra_data}
+    payment.extra_data = json.dumps(extra_data, indent=2)
+    payment.save()
 
 def quantize_price(price, currency):
     price = price * CURRENCY_SUB_UNIT[currency]
@@ -178,14 +186,15 @@ class PayuProvider(BasicProvider):
             pay_link = self.create_order(payment, self.get_processor(payment))
             raise RedirectNeeded(pay_link)
 
-        if payment.status != PaymentStatus.WAITING:
-            return PaymentErrorForm()
-
         cvv_url = None
         if payment.extra_data:
             extra_data = json.loads(payment.extra_data)
-            if 'cvv_url' in extra_data:
-                cvv_url = extra_data['cvv_url']
+            if '3ds_url' in extra_data:
+                raise RedirectNeeded(extra_data['3ds_url'])
+            cvv_url = extra_data.get('cvv_url', None)
+
+        if payment.status != PaymentStatus.WAITING:
+            return PaymentErrorForm()
 
         renew_token = payment.get_renew_token()
         if renew_token and self.recurring_payments and not cvv_url:
@@ -362,8 +371,7 @@ class PayuProvider(BasicProvider):
                     card_expire_month=response_dict['payMethods']['payMethod']['card']['expirationMonth'],
                     card_masked_number=response_dict['payMethods']['payMethod']['card']['number'],
                 )
-            payment.extra_data = json.dumps({'card_response': response_dict}, indent=2)
-            payment.save()
+            add_extra_data(payment, {'card_response': response_dict})
 
             if response_dict['status']['statusCode'] == u'SUCCESS':
                 if 'redirectUri' in response_dict:
@@ -375,10 +383,10 @@ class PayuProvider(BasicProvider):
                         return "success"
                     return payment_processor.continueUrl
             elif response_dict['status']['statusCode'] == u'WARNING_CONTINUE_CVV':
-                payment.extra_data = json.dumps({'cvv_url': response_dict['redirectUri']}, indent=2)
-                payment.save()
+                add_extra_data(payment, {'cvv_url': response_dict['redirectUri']})
                 return payment.get_payment_url()
             elif response_dict['status']['statusCode'] == u'WARNING_CONTINUE_3DS':
+                add_extra_data(payment, {'3ds_url': response_dict['redirectUri']})
                 return response_dict['redirectUri']
         except KeyError:
             pass
