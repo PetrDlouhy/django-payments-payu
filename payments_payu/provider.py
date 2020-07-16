@@ -42,6 +42,7 @@ CURRENCY_SUB_UNIT = {
 
 CENTS = Decimal('0.01')
 
+
 def add_extra_data(payment, new_extra_data):
     if payment.extra_data:
         old_extra_data = json.loads(payment.extra_data)
@@ -50,6 +51,7 @@ def add_extra_data(payment, new_extra_data):
     extra_data = {**old_extra_data, **new_extra_data}
     payment.extra_data = json.dumps(extra_data, indent=2)
     payment.save()
+
 
 def quantize_price(price, currency):
     price = price * CURRENCY_SUB_UNIT[currency]

@@ -187,9 +187,8 @@ class TestPayuProvider(TestCase):
                         "description": "payment", "totalAmount": 20000, "merchantPosId": "123abc", "customerIp": "123",
                         "notifyUrl": "https://example.com/process_url/token",
                         "extOrderId": "bar_token",
-                        "products": [
-                            {"currency": "USD", "name": "foo", "quantity": 10, "unitPrice": 2000, "subUnit": 100},
-                        ],
+                        "products":
+                        [{"currency": "USD", "name": "foo", "quantity": 10, "unitPrice": 2000, "subUnit": 100}],
                         "continueUrl": "http://foo_succ.com", "currencyCode": "USD",
                     },
                 ),
@@ -221,9 +220,8 @@ class TestPayuProvider(TestCase):
                         "description": "payment", "totalAmount": 20000, "merchantPosId": "123abc", "customerIp": "123",
                         "notifyUrl": "https://example.com/process_url/token",
                         "extOrderId": "bar_token",
-                        "products": [
-                            {"currency": "USD", "name": "foo", "quantity": 10, "unitPrice": 2000, "subUnit": 100},
-                        ],
+                        "products":
+                        [{"currency": "USD", "name": "foo", "quantity": 10, "unitPrice": 2000, "subUnit": 100}],
                         "continueUrl": "http://foo_succ.com", "currencyCode": "USD",
                     },
                 ),
@@ -243,7 +241,11 @@ class TestPayuProvider(TestCase):
             mocked_post.return_value = post
             with self.assertRaises(PayuApiError) as context:
                 self.provider.get_form(payment=self.payment)
-            self.assertEqual(context.exception.args[0], "Unable to regain authorization token {'redirectUri': 'test_redirect_uri', 'status': {'statusCode': 'UNAUTHORIZED'}, 'orderId': 123}")
+            self.assertEqual(
+                context.exception.args[0],
+                "Unable to regain authorization token "
+                "{'redirectUri': 'test_redirect_uri', 'status': {'statusCode': 'UNAUTHORIZED'}, 'orderId': 123}",
+            )
 
             mocked_post.assert_called_with(
                 'http://mock.url/pl/standard/user/oauth/authorize',
@@ -281,7 +283,9 @@ class TestPayuProvider(TestCase):
         self.set_up_provider(True, True)
         with patch('requests.post') as mocked_post:
             post = MagicMock()
-            post.text = '{"redirectUri": "test_redirect_uri", "status": {"statusCode": "WARNING_CONTINUE_CVV"}, "orderId": 123}'
+            post.text = json.dumps(
+                {"redirectUri": "test_redirect_uri", "status": {"statusCode": "WARNING_CONTINUE_CVV"}, "orderId": 123}
+            )
             post.status_code = 200
             mocked_post.return_value = post
             redirect = self.provider.process_data(payment=self.payment, request=post)
@@ -299,7 +303,8 @@ class TestPayuProvider(TestCase):
                         ],
                         "extOrderId": "bar_token",
                         "buyer": {
-                            "phone": None, "email": "foo@bar.com", "lastName": "Bar", "language": "en", "firstName": "Foo",
+                            "phone": None, "email": "foo@bar.com",
+                            "lastName": "Bar", "language": "en", "firstName": "Foo",
                         },
                         "merchantPosId": "123abc", "notifyUrl": "https://example.com/process_url/token",
                         "payMethods": {
@@ -307,7 +312,8 @@ class TestPayuProvider(TestCase):
                                 "value": "bar_token", "type": "CARD_TOKEN"
                             }
                         },
-                        "totalAmount": 20000, "continueUrl": "http://foo_succ.com", "customerIp": "123", "description": "payment",
+                        "totalAmount": 20000, "continueUrl": "http://foo_succ.com",
+                        "customerIp": "123", "description": "payment",
                         "recurring": "STANDARD", "currencyCode": "USD"
                     },
                 ),
@@ -320,7 +326,9 @@ class TestPayuProvider(TestCase):
         self.payment.extra_data = json.dumps({'cvv_url': "foo_url"})
         with patch('requests.post') as mocked_post:
             post = MagicMock()
-            post.text = '{"redirectUri": "http://test_redirect_uri.com/", "status": {"statusCode": "SUCCESS"}, "orderId": 123}'
+            post.text = json.dumps(
+                {"redirectUri": "http://test_redirect_uri.com/", "status": {"statusCode": "SUCCESS"}, "orderId": 123},
+            )
             post.status_code = 200
             mocked_post.return_value = post
             form = self.provider.get_form(payment=self.payment)
@@ -334,7 +342,9 @@ class TestPayuProvider(TestCase):
         self.set_up_provider(True, False)
         with patch('requests.post') as mocked_post:
             post = MagicMock()
-            post.text = '{"redirectUri": "test_redirect_uri", "status": {"statusCode": "WARNING_CONTINUE_3DS"}, "orderId": 123}'
+            post.text = json.dumps(
+                {"redirectUri": "test_redirect_uri", "status": {"statusCode": "WARNING_CONTINUE_3DS"}, "orderId": 123}
+            )
             post.status_code = 200
             mocked_post.return_value = post
             with self.assertRaises(RedirectNeeded) as context:
@@ -345,11 +355,17 @@ class TestPayuProvider(TestCase):
                 data=JSONEquals(
                     {
                         "merchantPosId": "123abc", "continueUrl": "http://foo_succ.com",
-                        "buyer": {"lastName": "Bar", "phone": None, "email": "foo@bar.com", "firstName": "Foo", "language": "en"},
-                        "description": "payment", "notifyUrl": "https://example.com/process_url/token", "totalAmount": 20000,
+                        "buyer": {
+                            "lastName": "Bar", "phone": None,
+                            "email": "foo@bar.com", "firstName": "Foo", "language": "en"
+                        },
+                        "description": "payment",
+                        "notifyUrl": "https://example.com/process_url/token", "totalAmount": 20000,
                         "currencyCode": "USD",
                         "extOrderId": "bar_token",
-                        "products": [{"name": "foo", "quantity": 10, "subUnit": 100, "currency": "USD", "unitPrice": 2000}],
+                        "products": [{
+                            "name": "foo", "quantity": 10, "subUnit": 100, "currency": "USD", "unitPrice": 2000,
+                        }],
                         "customerIp": "123"
                     },
                 ),
@@ -423,7 +439,9 @@ class TestPayuProvider(TestCase):
         self.set_up_provider(True, True)
         mocked_request = MagicMock()
         mocked_request.body = b'{}'
-        mocked_request.META = {'CONTENT_TYPE': 'application/json', "HTTP_OPENPAYU_SIGNATURE": "signature=foo;algorithm=MD5"}
+        mocked_request.META = {
+            'CONTENT_TYPE': 'application/json', "HTTP_OPENPAYU_SIGNATURE": "signature=foo;algorithm=MD5"
+        }
         ret_val = self.provider.process_data(payment=self.payment, request=mocked_request)
         self.assertEqual(ret_val.__class__.__name__, "HttpResponse")
         self.assertEqual(ret_val.status_code, 500)
@@ -463,10 +481,15 @@ class TestPayuProvider(TestCase):
                         "recurring": "FIRST", "customerIp": "123", "totalAmount": 20000,
                         "description": "payment",
                         "extOrderId": None,
-                        "products": [{"name": "foo", "subUnit": 100, "currency": "USD", "unitPrice": 2000, "quantity": 10}],
+                        "products": [{
+                            "name": "foo", "subUnit": 100, "currency": "USD", "unitPrice": 2000, "quantity": 10
+                        }],
                         "continueUrl": "http://foo_succ.com", "merchantPosId": "123abc", "currencyCode": "USD",
                         "payMethods": {"payMethod": {"value": "renew_token", "type": "CARD_TOKEN"}},
-                        "buyer": {"firstName": "Foo", "email": "foo@bar.com", "language": "en", "phone": None, "lastName": "Bar"},
+                        "buyer": {
+                            "firstName": "Foo", "email": "foo@bar.com",
+                            "language": "en", "phone": None, "lastName": "Bar",
+                        },
                         "notifyUrl": "https://example.com/process_url/token",
                     }
                 ),
@@ -480,7 +503,9 @@ class TestPayuProvider(TestCase):
         self.set_up_provider(True, True)
         with patch('requests.post') as mocked_post:
             post = MagicMock()
-            post.text = '{"redirectUri": "http://test_redirect_uri.com/", "status": {"statusCode": "SUCCESS"}, "orderId": 123}'
+            post.text = json.dumps(
+                {"redirectUri": "http://test_redirect_uri.com/", "status": {"statusCode": "SUCCESS"}, "orderId": 123}
+            )
             post.status_code = 200
             mocked_post.return_value = post
             redirect = self.provider.process_data(payment=self.payment, request=mocked_post)
@@ -497,7 +522,8 @@ class TestPayuProvider(TestCase):
                         ],
                         "extOrderId": "bar_token",
                         "buyer": {
-                            "phone": None, "email": "foo@bar.com", "lastName": "Bar", "language": "en", "firstName": "Foo",
+                            "phone": None, "email": "foo@bar.com",
+                            "lastName": "Bar", "language": "en", "firstName": "Foo",
                         },
                         "merchantPosId": "123abc", "notifyUrl": "https://example.com/process_url/token",
                         "payMethods": {
@@ -505,7 +531,8 @@ class TestPayuProvider(TestCase):
                                 "value": "bar_token", "type": "CARD_TOKEN"
                             }
                         },
-                        "totalAmount": 20000, "continueUrl": "http://foo_succ.com", "customerIp": "123", "description": "payment",
+                        "totalAmount": 20000, "continueUrl": "http://foo_succ.com",
+                        "customerIp": "123", "description": "payment",
                         "recurring": "STANDARD", "currencyCode": "USD"
                     },
                 ),
@@ -520,7 +547,9 @@ class TestPayuProvider(TestCase):
         self.provider.card_on_file = True
         with patch('requests.post') as mocked_post:
             post = MagicMock()
-            post.text = '{"redirectUri": "http://test_redirect_uri.com/", "status": {"statusCode": "SUCCESS"}, "orderId": 123}'
+            post.text = json.dumps(
+                {"redirectUri": "http://test_redirect_uri.com/", "status": {"statusCode": "SUCCESS"}, "orderId": 123}
+            )
             post.status_code = 200
             mocked_post.return_value = post
             redirect = self.provider.process_data(payment=self.payment, request=mocked_post)
@@ -537,7 +566,8 @@ class TestPayuProvider(TestCase):
                         ],
                         "extOrderId": "bar_token",
                         "buyer": {
-                            "phone": None, "email": "foo@bar.com", "lastName": "Bar", "language": "en", "firstName": "Foo",
+                            "phone": None, "email": "foo@bar.com",
+                            "lastName": "Bar", "language": "en", "firstName": "Foo",
                         },
                         "merchantPosId": "123abc", "notifyUrl": "https://example.com/process_url/token",
                         "payMethods": {
@@ -545,7 +575,8 @@ class TestPayuProvider(TestCase):
                                 "value": "bar_token", "type": "CARD_TOKEN"
                             }
                         },
-                        "totalAmount": 20000, "continueUrl": "http://foo_succ.com", "customerIp": "123", "description": "payment",
+                        "totalAmount": 20000, "continueUrl": "http://foo_succ.com",
+                        "customerIp": "123", "description": "payment",
                         "cardOnFile": "STANDARD_CARDHOLDER", "currencyCode": "USD"
                     },
                 ),
@@ -572,7 +603,9 @@ class TestPayuProvider(TestCase):
         self.set_up_provider(True, True)
         with patch('requests.post') as mocked_post:
             post = MagicMock()
-            post.text = '{"redirectUri": "test_redirect_uri", "status": {"statusCode": "WARNING_CONTINUE_CVV"}, "orderId": 123}'
+            post.text = json.dumps(
+                {"redirectUri": "test_redirect_uri", "status": {"statusCode": "WARNING_CONTINUE_CVV"}, "orderId": 123}
+            )
             post.status_code = 200
             mocked_post.return_value = post
             redirect = self.provider.auto_complete_recurring(self.payment)
