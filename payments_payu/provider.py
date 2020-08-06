@@ -372,6 +372,7 @@ class PayuProvider(BasicProvider):
                     card_expire_year=response_dict['payMethods']['payMethod']['card']['expirationYear'],
                     card_expire_month=response_dict['payMethods']['payMethod']['card']['expirationMonth'],
                     card_masked_number=response_dict['payMethods']['payMethod']['card']['number'],
+                    automatic_renewal=self.recurring_payments,
                 )
             add_extra_data(payment, {'card_response': response_dict})
 
