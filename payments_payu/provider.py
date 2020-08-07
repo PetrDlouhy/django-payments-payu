@@ -246,6 +246,7 @@ class PayuProvider(BasicProvider):
             description=payment.description,
             customer_ip=payment.customer_ip_address,
             total=payment.total,
+            tax=payment.tax,
         )
         processor.set_buyer_data(
             first_name=payment.get_user_first_name(),
@@ -481,24 +482,26 @@ class PayuProvider(BasicProvider):
 class PaymentProcessor(object):
     "Payment processor"
 
-    def __init__(self, order, notify_url, currency, description, customer_ip, **kwargs):
+    def __init__(self, order, notify_url, currency, description, customer_ip, total, tax, **kwargs):
         self.order = order
         self.notify_url = notify_url
         self.currency = currency
         self.description = description
         self.customer_ip = customer_ip
+        self.tax = tax
         self.order_items = []
         self.external_id = None
         self.pos_id = None
-        self.total = None
+        self.total = total
 
     def get_order_items(self):
         for purchased_item in self.order:
             item = {
                 'name': purchased_item.name[:127],
                 'quantity': purchased_item.quantity,
-                'unitPrice': purchased_item.price,
+                'unitPrice': quantize_price(purchased_item.price * purchased_item.tax_rate, self.currency),
                 'currency': purchased_item.currency,
+                'subUnit': int(CURRENCY_SUB_UNIT[self.currency]),
             }
             yield item
 
@@ -521,16 +524,7 @@ class PaymentProcessor(object):
 
     def as_json(self):
         "Return json for the payment"
-        total = 0
-        products = []
-        order_items = self.get_order_items()
-        for i in order_items:
-            total += i['unitPrice'] * i['quantity']
-            i['subUnit'] = int(CURRENCY_SUB_UNIT[self.currency])
-            i['unitPrice'] = quantize_price(i['unitPrice'], self.currency)
-            products.append(i)
-
-        self.total = quantize_price(total, self.currency)
+        products = list(self.get_order_items())
 
         json_dict = {
             'notifyUrl': self.notify_url,
@@ -539,7 +533,7 @@ class PaymentProcessor(object):
             'merchantPosId': self.pos_id,
             'description': self.description,
             'currencyCode': self.currency,
-            'totalAmount': self.total,
+            'totalAmount': quantize_price(self.total + self.tax, self.currency),
             'products': products,
         }
 
