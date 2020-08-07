@@ -10,11 +10,11 @@ from django import forms
 from django.http.response import HttpResponse, HttpResponseRedirect
 from django.utils.html import format_html
 
-import requests
-
 from payments import PaymentStatus, RedirectNeeded
 from payments.core import BasicProvider, get_base_url
 from payments.forms import PaymentForm
+
+import requests
 
 
 sig_sorted_key_list = [
@@ -216,7 +216,7 @@ class PayuProvider(BasicProvider):
             payu_data.update({
                 'cvv-url': cvv_url,
                 'cvv-success-callback': 'cvvSuccess',
-                'widget-type': 'cvv'
+                'widget-type': 'cvv',
             })
         else:
             payu_data.update({
@@ -262,6 +262,7 @@ class PayuProvider(BasicProvider):
         processor = self.get_processor(payment)
         if self.card_on_file:
             processor.cardOnFile = 'FIRST' if recurring == 'FIRST' else 'STANDARD_CARDHOLDER'
+            # TODO: or STANDARD_MERCHANT
         elif self.recurring_payments:
             processor.recurring = recurring
         if self.express_payments:
@@ -355,7 +356,6 @@ class PayuProvider(BasicProvider):
 
         return redirectUrl  url where the user should go next
         """
-
         payment = payment
         payment_processor.pos_id = self.pos_id
         response_dict = self.post_request(
@@ -519,7 +519,7 @@ class PaymentProcessor(object):
                 'phone': phone,
                 'firstName': first_name,
                 'lastName': last_name,
-                'language': lang_code
+                'language': lang_code,
             }
 
     def as_json(self):
