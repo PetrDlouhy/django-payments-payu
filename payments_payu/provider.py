@@ -533,7 +533,7 @@ class PaymentProcessor(object):
             'merchantPosId': self.pos_id,
             'description': self.description,
             'currencyCode': self.currency,
-            'totalAmount': quantize_price(self.total + self.tax, self.currency),
+            'totalAmount': quantize_price(self.total, self.currency),
             'products': products,
         }
 
