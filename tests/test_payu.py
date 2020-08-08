@@ -87,11 +87,15 @@ class Payment(Mock):
     def get_user_email(self):
         return "foo@bar.com"
 
-    def set_renew_token(self, token, card_expire_year=None, card_expire_month=None, card_masked_number=None):
+    def set_renew_token(
+            self, token, card_expire_year=None, card_expire_month=None,
+            card_masked_number=None, automatic_renewal=None,
+    ):
         self.token = token
         self.card_expire_year = card_expire_year
         self.card_expire_month = card_expire_month
         self.card_masked_number = card_masked_number
+        self.automatic_renewal = automatic_renewal
 
 
 class TestPayuProvider(TestCase):
@@ -160,6 +164,7 @@ class TestPayuProvider(TestCase):
             self.assertEqual(self.payment.card_expire_year, 2021)
             self.assertEqual(self.payment.card_expire_month, 1)
             self.assertEqual(self.payment.card_masked_number, "1234xxx")
+            self.assertEqual(self.payment.automatic_renewal, True)
 
     def test_redirect_payu_unknown_status(self):
         self.set_up_provider(True, False)
