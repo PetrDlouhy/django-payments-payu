@@ -184,7 +184,7 @@ class TestPayuProvider(TestCase):
                     {"buyer": {
                         "email": "foo@bar.com", "language": "en", "lastName": "Bar", "firstName": "Foo", "phone": None,
                     },
-                        "description": "payment", "totalAmount": 20000, "merchantPosId": "123abc", "customerIp": "123",
+                        "description": "payment", "totalAmount": 22000, "merchantPosId": "123abc", "customerIp": "123",
                         "notifyUrl": "https://example.com/process_url/token",
                         "extOrderId": "bar_token",
                         "products":
@@ -217,7 +217,7 @@ class TestPayuProvider(TestCase):
                     {"buyer": {
                         "email": "foo@bar.com", "language": "en", "lastName": "Bar", "firstName": "Foo", "phone": None,
                     },
-                        "description": "payment", "totalAmount": 20000, "merchantPosId": "123abc", "customerIp": "123",
+                        "description": "payment", "totalAmount": 22000, "merchantPosId": "123abc", "customerIp": "123",
                         "notifyUrl": "https://example.com/process_url/token",
                         "extOrderId": "bar_token",
                         "products":
@@ -312,7 +312,7 @@ class TestPayuProvider(TestCase):
                                 "value": "bar_token", "type": "CARD_TOKEN"
                             }
                         },
-                        "totalAmount": 20000, "continueUrl": "http://foo_succ.com",
+                        "totalAmount": 22000, "continueUrl": "http://foo_succ.com",
                         "customerIp": "123", "description": "payment",
                         "recurring": "STANDARD", "currencyCode": "USD"
                     },
@@ -360,7 +360,7 @@ class TestPayuProvider(TestCase):
                             "email": "foo@bar.com", "firstName": "Foo", "language": "en"
                         },
                         "description": "payment",
-                        "notifyUrl": "https://example.com/process_url/token", "totalAmount": 20000,
+                        "notifyUrl": "https://example.com/process_url/token", "totalAmount": 22000,
                         "currencyCode": "USD",
                         "extOrderId": "bar_token",
                         "products": [{
@@ -478,7 +478,7 @@ class TestPayuProvider(TestCase):
                 allow_redirects=False,
                 data=JSONEquals(
                     {
-                        "recurring": "FIRST", "customerIp": "123", "totalAmount": 20000,
+                        "recurring": "FIRST", "customerIp": "123", "totalAmount": 22000,
                         "description": "payment",
                         "extOrderId": None,
                         "products": [{
@@ -531,7 +531,7 @@ class TestPayuProvider(TestCase):
                                 "value": "bar_token", "type": "CARD_TOKEN"
                             }
                         },
-                        "totalAmount": 20000, "continueUrl": "http://foo_succ.com",
+                        "totalAmount": 22000, "continueUrl": "http://foo_succ.com",
                         "customerIp": "123", "description": "payment",
                         "recurring": "STANDARD", "currencyCode": "USD"
                     },
@@ -575,7 +575,7 @@ class TestPayuProvider(TestCase):
                                 "value": "bar_token", "type": "CARD_TOKEN"
                             }
                         },
-                        "totalAmount": 20000, "continueUrl": "http://foo_succ.com",
+                        "totalAmount": 22000, "continueUrl": "http://foo_succ.com",
                         "customerIp": "123", "description": "payment",
                         "cardOnFile": "STANDARD_CARDHOLDER", "currencyCode": "USD"
                     },
