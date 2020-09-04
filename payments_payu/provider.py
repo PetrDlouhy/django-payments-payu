@@ -277,9 +277,8 @@ class PayuProvider(BasicProvider):
         return HttpResponse(data, status=200)
 
     def post_request(self, url, *args, **kwargs):
-        if 'headers' not in kwargs:
-            kwargs['headers'] = self.get_token_headers()
         for i in range(1, self.retry_count):
+            kwargs['headers'] = self.get_token_headers()
             response = requests.post(url, *args, **kwargs)
             response_dict = json.loads(response.text)
             if (
@@ -346,7 +345,6 @@ class PayuProvider(BasicProvider):
 
         payu_delete_token_url = urljoin(self.payu_token_url, card_token)
         response = requests.delete(payu_delete_token_url, headers=self.get_token_headers())
-        self.token = None
 
         return (response.status_code == 204)
 
