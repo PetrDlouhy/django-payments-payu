@@ -53,6 +53,18 @@ def add_extra_data(payment, new_extra_data):
     payment.save()
 
 
+def add_new_status(payment, new_status):
+    if payment.extra_data:
+        old_extra_data = json.loads(payment.extra_data)
+    else:
+        old_extra_data = {}
+    if 'statuses' not in old_extra_data:
+        old_extra_data['statuses'] = []
+    old_extra_data['statuses'].append(new_status)
+    payment.extra_data = json.dumps(old_extra_data, indent=2)
+    payment.save()
+
+
 def quantize_price(price, currency):
     price = price * CURRENCY_SUB_UNIT[currency]
     return int(price.quantize(CENTS, rounding=ROUND_HALF_UP))
@@ -460,6 +472,7 @@ class PayuProvider(BasicProvider):
                     'CANCELED': PaymentStatus.REJECTED,
                     'NEW': PaymentStatus.WAITING,
                 }
+                add_new_status(payment, data)
                 payment.change_status(status_map[status])
                 return HttpResponse("ok", status=200)
         return HttpResponse("not ok", status=500)
