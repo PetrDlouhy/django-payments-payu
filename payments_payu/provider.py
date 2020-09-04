@@ -475,6 +475,8 @@ class PayuProvider(BasicProvider):
             return self.process_widget_callback(payment, renew_token, recurring="STANDARD")
         elif 'value' in request.POST:
             return self.process_widget_callback(payment, request.POST.get('value'), recurring="FIRST")
+        else:
+            return HttpResponse("request not recognized by django-payments-payu provider", status=500)
 
 
 class PaymentProcessor(object):
