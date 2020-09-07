@@ -70,6 +70,11 @@ def quantize_price(price, currency):
     return int(price.quantize(CENTS, rounding=ROUND_HALF_UP))
 
 
+def dequantize_price(price, currency):
+    price = Decimal(price) / CURRENCY_SUB_UNIT[currency]
+    return price
+
+
 # A bit hacky method, how to get html output instead of form (for PayU express form and error form)
 class HtmlOutputField(forms.HiddenInput):
     def __init__(self, *args, html='', **kwargs):
@@ -473,6 +478,8 @@ class PayuProvider(BasicProvider):
                     'NEW': PaymentStatus.WAITING,
                 }
                 add_new_status(payment, data)
+                if PaymentStatus.CONFIRMED:
+                    payment.captured_amount = dequantize_price(data['order']['totalAmount'], data['order']['currencyCode'])
                 payment.change_status(status_map[status])
                 return HttpResponse("ok", status=200)
         return HttpResponse("not ok", status=500)
