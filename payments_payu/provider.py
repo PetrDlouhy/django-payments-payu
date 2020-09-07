@@ -373,9 +373,10 @@ class PayuProvider(BasicProvider):
         """
         payment = payment
         payment_processor.pos_id = self.pos_id
+        json_data = payment_processor.as_json()
         response_dict = self.post_request(
             self.payu_api_order_url,
-            data=payment_processor.as_json(),
+            data=json_data,
             allow_redirects=False,
         )
 
@@ -410,7 +411,7 @@ class PayuProvider(BasicProvider):
         except KeyError:
             pass
 
-        raise PayuApiError(response_dict)
+        raise PayuApiError(response_dict, json_data)
 
     # Method that returns all pay methods
 
@@ -479,7 +480,10 @@ class PayuProvider(BasicProvider):
                 }
                 add_new_status(payment, data)
                 if PaymentStatus.CONFIRMED:
-                    payment.captured_amount = dequantize_price(data['order']['totalAmount'], data['order']['currencyCode'])
+                    payment.captured_amount = dequantize_price(
+                        data['order']['totalAmount'],
+                        data['order']['currencyCode'],
+                    )
                 payment.change_status(status_map[status])
                 return HttpResponse("ok", status=200)
         return HttpResponse("not ok", status=500)
