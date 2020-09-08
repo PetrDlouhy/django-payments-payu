@@ -479,7 +479,7 @@ class PayuProvider(BasicProvider):
                     'NEW': PaymentStatus.WAITING,
                 }
                 add_new_status(payment, data)
-                if PaymentStatus.CONFIRMED:
+                if PaymentStatus.CONFIRMED and 'totalAmount' in data['order']:
                     payment.captured_amount = dequantize_price(
                         data['order']['totalAmount'],
                         data['order']['currencyCode'],

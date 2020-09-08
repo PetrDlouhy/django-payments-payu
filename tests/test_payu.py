@@ -439,6 +439,25 @@ class TestPayuProvider(TestCase):
         self.assertEqual(self.payment.status, PaymentStatus.CONFIRMED)
         self.assertEqual(self.payment.captured_amount, Decimal('0'))
 
+    def test_process_notification_total_amount(self):
+        """ Test processing PayU notification if it captures correct amount """
+        self.set_up_provider(True, True)
+        mocked_request = MagicMock()
+        mocked_request.body = json.dumps(
+            {"order": {"status": "COMPLETED", "totalAmount": 200, "currencyCode": "USD"}},
+        ).encode("utf8")
+        mocked_request.META = {
+            'CONTENT_TYPE': 'application/json',
+            "HTTP_OPENPAYU_SIGNATURE": "signature=01a0e768ab1f762da4b955585aa4e59e;algorithm=MD5",
+        }
+        mocked_request.status_code = 200
+        ret_val = self.provider.process_data(payment=self.payment, request=mocked_request)
+        self.assertEqual(ret_val.__class__.__name__, "HttpResponse")
+        self.assertEqual(ret_val.status_code, 200)
+        self.assertEqual(ret_val.content, b"ok")
+        self.assertEqual(self.payment.status, PaymentStatus.CONFIRMED)
+        self.assertEqual(self.payment.captured_amount, Decimal('2'))
+
     def test_process_notification_error(self):
         """ Test processing PayU notification with wrong signature """
         self.set_up_provider(True, True)
