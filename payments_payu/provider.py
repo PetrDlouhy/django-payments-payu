@@ -470,22 +470,34 @@ class PayuProvider(BasicProvider):
             signature = m.hexdigest()
             if incoming_signature == signature:  # and not payment.status == PaymentStatus.CONFIRMED:
                 data = json.loads(request.body.decode("utf8"))
-                status = data['order']['status']
-                status_map = {
-                    'COMPLETED': PaymentStatus.CONFIRMED,
-                    'PENDING': PaymentStatus.INPUT,
-                    'WAITING_FOR_CONFIRMATION': PaymentStatus.INPUT,
-                    'CANCELED': PaymentStatus.REJECTED,
-                    'NEW': PaymentStatus.WAITING,
-                }
                 add_new_status(payment, data)
-                if PaymentStatus.CONFIRMED and 'totalAmount' in data['order']:
-                    payment.captured_amount = dequantize_price(
-                        data['order']['totalAmount'],
-                        data['order']['currencyCode'],
+                if 'refund' in data:
+                    refunded_price = dequantize_price(
+                        data['refund']['amount'],
+                        data['refund']['currencyCode'],
                     )
-                payment.change_status(status_map[status])
-                return HttpResponse("ok", status=200)
+                    if data['refund']['status'] == 'FINALIZED' and refunded_price == payment.total:
+                        payment.message += data['refund']['reasonDescription']
+                        payment.change_status(PaymentStatus.REFUNDED)
+                        return HttpResponse("ok", status=200)
+                    else:
+                        raise Exception("Partial refund or refund status not supported", data)
+                else:
+                    status = data['order']['status']
+                    status_map = {
+                        'COMPLETED': PaymentStatus.CONFIRMED,
+                        'PENDING': PaymentStatus.INPUT,
+                        'WAITING_FOR_CONFIRMATION': PaymentStatus.INPUT,
+                        'CANCELED': PaymentStatus.REJECTED,
+                        'NEW': PaymentStatus.WAITING,
+                    }
+                    if PaymentStatus.CONFIRMED and 'totalAmount' in data['order']:
+                        payment.captured_amount = dequantize_price(
+                            data['order']['totalAmount'],
+                            data['order']['currencyCode'],
+                        )
+                    payment.change_status(status_map[status])
+                    return HttpResponse("ok", status=200)
         return HttpResponse("not ok", status=500)
 
     def process_data(self, payment, request, *args, **kwargs):
