@@ -28,7 +28,7 @@ Install `django-payments <https://github.com/mirumee/django-payments>`_ and set 
 
 .. class:: payments_payu.provider.PayuProvider(client_secret, second_key, pos_id, [sandbox=False, endpoint="https://secure.payu.com/", recurring_payments=False, express_payments=False, widget_branding=False])
 
-   This backend implements payments using `PayPal.com <https://www.paypal.com/>`_.
+   This backend implements payments using `PayU.com <https://payu.com>`_.
 
    :param client_secret: PayU OAuth protocol client secret
    :param pos_id: PayU POS ID
