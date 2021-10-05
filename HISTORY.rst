@@ -3,6 +3,10 @@
 History
 -------
 
+1.1.0 (2021-10-05)
+++++++++++++++++++
+* redirect to payment.get_failure_url() after API error, log the error
+
 1.0.0 (2020-10-21)
 ++++++++++++++++++
 * first major release
