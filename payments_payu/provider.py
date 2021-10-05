@@ -1,5 +1,6 @@
 import hashlib
 import json
+import logging
 from decimal import Decimal, ROUND_HALF_UP
 try:
     from urllib.parse import urljoin
@@ -16,6 +17,7 @@ from payments.forms import PaymentForm
 
 import requests
 
+logger = logging.getLogger(__name__)
 
 sig_sorted_key_list = [
     "currency-code",
@@ -273,6 +275,7 @@ class PayuProvider(BasicProvider):
         )
         processor.external_id = payment.token
         processor.continueUrl = urljoin(get_base_url(), payment.get_success_url())
+        processor.failureUrl = urljoin(get_base_url(), payment.get_failure_url())
         return processor
 
     def process_widget(self, payment, card_token, recurring="FIRST", auto_renew=False):
@@ -376,7 +379,7 @@ class PayuProvider(BasicProvider):
         json_data = payment_processor.as_json()
         response_dict = self.post_request(
             self.payu_api_order_url,
-            data=json_data,
+            data=json.dumps(json_data),
             allow_redirects=False,
         )
 
@@ -411,7 +414,9 @@ class PayuProvider(BasicProvider):
         except KeyError:
             pass
 
-        raise PayuApiError(response_dict, json_data)
+        payment.change_status(PaymentStatus.ERROR)
+        logger.exception(PayuApiError(response_dict, json_data))
+        return payment_processor.failureUrl
 
     # Method that returns all pay methods
 
@@ -592,4 +597,4 @@ class PaymentProcessor(object):
         if hasattr(self, 'cardOnFile'):
             json_dict['cardOnFile'] = self.cardOnFile
 
-        return json.dumps(json_dict)
+        return json_dict
