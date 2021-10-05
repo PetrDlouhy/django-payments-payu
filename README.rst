@@ -30,16 +30,7 @@ Install `django-payments <https://github.com/mirumee/django-payments>`_ and set 
 
    This backend implements payments using `PayU.com <https://payu.com>`_.
 
-   :param client_secret: PayU OAuth protocol client secret
-   :param pos_id: PayU POS ID
-   :param second_key: PayU second key (MD5)
-   :param sandbox: if ``True``, set the endpoint to sandbox
-   :param endpoint: endpoint URL, if not set, the will be automatically set based on `sandbox` settings
-   :param recurring_payments: enable recurring payments, only valid with ``express_payments=True``, see bellow for additional setup, that is needed
-   :param express_payments: use PayU express form
-   :param widget_branding: tell express form to show PayU branding
-   :param store_card: (default: False) whether PayU should store the card
-
+Set up the payment provider:
 
 Example::
 
@@ -54,16 +45,25 @@ Example::
           }),
       }
 
+Here are valid parameters for the provider:
+   :client_secret:      PayU OAuth protocol client secret
+   :pos_id:             PayU POS ID
+   :second_key:         PayU second key (MD5)
+   :sandbox:            if ``True``, set the endpoint to sandbox
+   :endpoint:           endpoint URL, if not set, the will be automatically set based on `sandbox` settings
+   :recurring_payments: enable recurring payments, only valid with ``express_payments=True``, see bellow for additional setup, that is needed
+   :express_payments:   use PayU express form
+   :widget_branding:    tell express form to show PayU branding
+   :store_card:         (default: False) whether PayU should store the card
+
 
 Additional settings:
-
    PayU requires users first name, last name and email. Override ether ``get_user`` or ``get_user_email``, ``get_user_first_name`` and ``get_user_last_name`` methods from ``BasePayment``.
 
    NOTE: notifications about the payment status from PayU are requested to be sent to `django-payments` `process_payment` url. The request from PayU can fail for several reasons (i.e. it can be blocked by proxy). Use "Show reports" page in PayU administration to get more information about the requests.
 
 
 **Recurring payments**:
-
    If recurring payments are enabled, the PayU card token needs to be stored in your application for usage in next payments. The next payments can be either initiated by user through (user will be prompted only for payment confirmation by the express form) or by server.
    To enable recurring payments, you will need to set additional things:
 
