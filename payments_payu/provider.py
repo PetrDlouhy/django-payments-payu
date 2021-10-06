@@ -416,7 +416,10 @@ class PayuProvider(BasicProvider):
             pass
 
         payment.change_status(PaymentStatus.ERROR)
-        logger.exception(PayuApiError(response_dict, json_data))
+        try:
+            raise PayuApiError(response_dict)
+        except PayuApiError:
+            logger.exception("PayU API error")
         return payment_processor.failureUrl
 
     # Method that returns all pay methods
