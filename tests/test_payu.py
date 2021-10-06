@@ -40,6 +40,7 @@ class Payment(Mock):
     total = Decimal(220)
     billing_first_name = "Foo"
     billing_last_name = "Bar"
+    billing_email = "foo@bar.com"
     captured_amount = Decimal(0)
     variant = VARIANT
     transaction_id = None
@@ -77,15 +78,6 @@ class Payment(Mock):
 
     def get_renew_token(self):
         return self.token
-
-    def get_user_first_name(self):
-        return "Foo"
-
-    def get_user_last_name(self):
-        return "Bar"
-
-    def get_user_email(self):
-        return "foo@bar.com"
 
     def set_renew_token(
             self, token, card_expire_year=None, card_expire_month=None,
@@ -178,9 +170,9 @@ class TestPayuProvider(TestCase):
             post.text = json.dumps(post_text)
             post.status_code = 200
             mocked_post.return_value = post
-            with self.assertRaises(PayuApiError) as context:
+            with self.assertRaises(RedirectNeeded) as context:
                 self.provider.get_form(payment=self.payment)
-            self.assertEqual(context.exception.args[0], post_text)
+            self.assertEqual(context.exception.args[0], 'http://cancel.com')
 
             mocked_post.assert_called_once_with(
                 'http://mock.url/api/v2_1/orders/',
@@ -211,9 +203,9 @@ class TestPayuProvider(TestCase):
             post.text = json.dumps(post_text)
             post.status_code = 200
             mocked_post.return_value = post
-            with self.assertRaises(PayuApiError) as context:
+            with self.assertRaises(RedirectNeeded) as context:
                 self.provider.get_form(payment=self.payment)
-            self.assertEqual(context.exception.args[0], post_text)
+            self.assertEqual(context.exception.args[0], 'http://cancel.com')
 
             mocked_post.assert_called_once_with(
                 'http://mock.url/api/v2_1/orders/',
