@@ -173,6 +173,7 @@ class PayuProvider(BasicProvider):
         self.payu_api_paymethods_url = urljoin(self.payu_api_url, "paymethods/")
         self.payu_widget_branding = kwargs.pop('widget_branding', False)
         self.payu_store_card = kwargs.pop('store_card', False)
+        self.payu_shop_name = kwargs.pop('shop_name', "")
         self.grant_type = kwargs.pop('grant_type', 'client_credentials')
         self.recurring_payments = kwargs.pop('recurring_payments', False)
 
@@ -225,7 +226,7 @@ class PayuProvider(BasicProvider):
 
         payu_data = {
             "merchant-pos-id": self.pos_id,
-            "shop-name": " ".join((payment.billing_first_name, payment.billing_last_name)).strip().replace(" ", "_"),
+            "shop-name": self.payu_shop_name,
             "total-amount": payment.total,
             "currency-code": payment.currency,
             "customer-language": "en",
@@ -239,7 +240,7 @@ class PayuProvider(BasicProvider):
             })
         else:
             payu_data.update({
-                "customer-email": payment.get_user_email(),
+                "customer-email": payment.billing_email,
                 "store-card": str(self.payu_store_card).lower(),
                 "payu-brand": str(self.payu_widget_branding).lower(),
             })
@@ -268,9 +269,9 @@ class PayuProvider(BasicProvider):
             tax=payment.tax,
         )
         processor.set_buyer_data(
-            first_name=payment.get_user_first_name(),
-            last_name=payment.get_user_last_name(),
-            email=payment.get_user_email(),
+            first_name=payment.billing_first_name,
+            last_name=payment.billing_last_name,
+            email=payment.billing_email,
             phone=None,
         )
         processor.external_id = payment.token

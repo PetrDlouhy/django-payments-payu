@@ -49,6 +49,7 @@ Here are valid parameters for the provider:
    :client_secret:      PayU OAuth protocol client secret
    :pos_id:             PayU POS ID
    :second_key:         PayU second key (MD5)
+   :shop_name:          Name of the shop send to the API
    :sandbox:            if ``True``, set the endpoint to sandbox
    :endpoint:           endpoint URL, if not set, the will be automatically set based on `sandbox` settings
    :recurring_payments: enable recurring payments, only valid with ``express_payments=True``, see bellow for additional setup, that is needed
