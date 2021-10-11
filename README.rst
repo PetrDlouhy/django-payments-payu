@@ -58,9 +58,6 @@ Here are valid parameters for the provider:
    :store_card:         (default: False) whether PayU should store the card
 
 
-Additional settings:
-   PayU requires users first name, last name and email. Override ether ``get_user`` or ``get_user_email``, ``get_user_first_name`` and ``get_user_last_name`` methods from ``BasePayment``.
-
    NOTE: notifications about the payment status from PayU are requested to be sent to `django-payments` `process_payment` url. The request from PayU can fail for several reasons (i.e. it can be blocked by proxy). Use "Show reports" page in PayU administration to get more information about the requests.
 
 

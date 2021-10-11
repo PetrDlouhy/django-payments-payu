@@ -3,6 +3,11 @@
 History
 -------
 
+1.2.0 (2021-10-11)
+++++++++++++++++++
+* user Payment.billing_* correctly - the functions like ``get_user`` or ``get_user_email``, ``get_user_first_name`` and ``get_user_last_name`` were redundant and are not called anymore.
+* Shop name is taken from provider configuration variable ``shop_name``
+
 1.1.0 (2021-10-05)
 ++++++++++++++++++
 * redirect to payment.get_failure_url() after API error, log the error
