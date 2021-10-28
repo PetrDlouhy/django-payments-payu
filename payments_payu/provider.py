@@ -175,7 +175,6 @@ class PayuProvider(BasicProvider):
         self.payu_store_card = kwargs.pop('store_card', False)
         self.payu_shop_name = kwargs.pop('shop_name', "")
         self.grant_type = kwargs.pop('grant_type', 'client_credentials')
-        self.recurring_payments = kwargs.pop('recurring_payments', False)
 
         # Use card on file paremeter instead of recurring.
         # PayU asks CVV2 every time with this setting which can be used for testing purposes.
@@ -193,11 +192,13 @@ class PayuProvider(BasicProvider):
         string += self.second_key
         return hashlib.sha256(string.encode('utf-8')).hexdigest().lower()
 
-    def auto_complete_recurring(self, payment):
-        renew_token = payment.get_renew_token()
+    def autocomplete_with_subscription(self, payment):
+        renew_token = payment.get_subscription().get_token()
         url = self.process_widget(payment, renew_token, recurring="STANDARD", auto_renew=True)
         if not url.startswith("http") and url != 'success':
             url = urljoin(get_base_url(), url)
+        if url != 'success':
+            raise RedirectNeeded(url)
         return url
 
     def get_form(self, payment, data={}):
@@ -218,8 +219,7 @@ class PayuProvider(BasicProvider):
         if payment.status != PaymentStatus.WAITING:
             return PaymentErrorForm()
 
-        renew_token = payment.get_renew_token()
-        if renew_token and self.recurring_payments and not cvv_url:
+        if payment.is_recurring() and payment.get_subscription().get_token() and not cvv_url:
             return RenewPaymentForm(provider=self, payment=payment)
             # Use this, if the user doesn't need to be informed about the recurring payment:
             # raise RedirectNeeded(payment.get_process_url())
@@ -244,7 +244,7 @@ class PayuProvider(BasicProvider):
                 "store-card": str(self.payu_store_card).lower(),
                 "payu-brand": str(self.payu_widget_branding).lower(),
             })
-            if self.recurring_payments:
+            if payment.is_recurring():
                 payu_data["recurring-payment"] = "true"
         payu_data['sig'] = self.get_sig(payu_data)
 
@@ -284,7 +284,7 @@ class PayuProvider(BasicProvider):
         if self.card_on_file:
             processor.cardOnFile = 'FIRST' if recurring == 'FIRST' else 'STANDARD_CARDHOLDER'
             # TODO: or STANDARD_MERCHANT
-        elif self.recurring_payments:
+        elif payment.is_recurring():
             processor.recurring = recurring
         if self.express_payments:
             processor.set_paymethod(method_type="CARD_TOKEN", value=card_token)
@@ -361,9 +361,10 @@ class PayuProvider(BasicProvider):
             'Authorization': 'Bearer %s' % self.token,
         }
 
-    def delete_card_token(self, card_token):
+    def cancel_subscription(self, subscription):
         "Deactivate card token on PayU"
 
+        card_token = subscription.get_token()
         payu_delete_token_url = urljoin(self.payu_token_url, card_token)
         response = requests.delete(payu_delete_token_url, headers=self.get_token_headers())
 
@@ -388,12 +389,11 @@ class PayuProvider(BasicProvider):
             payment.transaction_id = response_dict['orderId']
 
             if 'payMethods' in response_dict:
-                payment.set_renew_token(
+                payment.get_subscription().set_recurrence(
                     response_dict['payMethods']['payMethod']['value'],
                     card_expire_year=response_dict['payMethods']['payMethod']['card']['expirationYear'],
                     card_expire_month=response_dict['payMethods']['payMethod']['card']['expirationMonth'],
                     card_masked_number=response_dict['payMethods']['payMethod']['card']['number'],
-                    automatic_renewal=self.recurring_payments,
                 )
             add_extra_data(payment, {'card_response': response_dict})
 
@@ -512,11 +512,10 @@ class PayuProvider(BasicProvider):
     def process_data(self, payment, request, *args, **kwargs):
         self.request = request
 
-        renew_token = payment.get_renew_token()
-
         if 'application/json' in request.META.get('CONTENT_TYPE', {}):
             return self.process_notification(payment, request)
-        elif renew_token and self.recurring_payments:
+        elif payment.is_recurring() and payment.get_subscription().get_token():
+            renew_token = payment.get_subscription().get_token()
             return self.process_widget_callback(payment, renew_token, recurring="STANDARD")
         elif 'value' in request.POST:
             return self.process_widget_callback(payment, request.POST.get('value'), recurring="FIRST")
