@@ -11,7 +11,7 @@ from django import forms
 from django.http.response import HttpResponse, HttpResponseRedirect
 from django.utils.html import format_html
 
-from payments import PaymentStatus, RedirectNeeded
+from payments import FraudStatus, PaymentStatus, RedirectNeeded
 from payments.core import BasicProvider, get_base_url
 from payments.forms import PaymentForm
 
@@ -415,6 +415,10 @@ class PayuProvider(BasicProvider):
         except KeyError:
             pass
 
+        if response_dict['status']['statusCode'] == 'BUSINESS_ERROR':
+            payment.change_fraud_status(FraudStatus.REJECT, message=response_dict)
+        else:
+            add_extra_data(payment, response_dict)
         payment.change_status(PaymentStatus.ERROR)
         try:
             raise PayuApiError(response_dict)
