@@ -1,21 +1,20 @@
 import hashlib
 import json
 import logging
-from decimal import Decimal, ROUND_HALF_UP
+from decimal import ROUND_HALF_UP, Decimal
+
 try:
     from urllib.parse import urljoin
 except ImportError:
     from urlparse import urljoin
 
+import requests
 from django import forms
 from django.http.response import HttpResponse, HttpResponseRedirect
 from django.utils.html import format_html
-
 from payments import FraudStatus, PaymentStatus, RedirectNeeded
 from payments.core import BasicProvider, get_base_url
 from payments.forms import PaymentForm
-
-import requests
 
 logger = logging.getLogger(__name__)
 

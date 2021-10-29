@@ -1,13 +1,13 @@
 from __future__ import unicode_literals
 
 import json
-
 from decimal import Decimal
 from unittest import TestCase
+
 from mock import MagicMock, Mock, patch
+from payments import PaymentStatus, PurchasedItem, RedirectNeeded
 
 from payments_payu.provider import PayuApiError, PayuProvider
-from payments import PaymentStatus, PurchasedItem, RedirectNeeded
 
 SECRET = '123abc'
 SECOND_KEY = '123abc'
