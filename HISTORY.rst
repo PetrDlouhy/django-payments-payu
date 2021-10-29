@@ -3,6 +3,11 @@
 History
 -------
 
+1.2.1 (2021-10-29)
+++++++++++++++++++
+* set fraud status if PayU anti-froud error
+* store PayU error on payment
+
 1.2.0 (2021-10-11)
 ++++++++++++++++++
 * user Payment.billing_* correctly - the functions like ``get_user`` or ``get_user_email``, ``get_user_first_name`` and ``get_user_last_name`` were redundant and are not called anymore.
