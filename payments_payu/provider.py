@@ -418,6 +418,10 @@ class PayuProvider(BasicProvider):
             payment.change_fraud_status(FraudStatus.REJECT, message=response_dict)
         else:
             add_extra_data(payment, response_dict)
+        if response_dict['status']['statusCode'] == 'ERROR_ORDER_NOT_UNIQUE' and \
+                payment.status == PaymentStatus.CONFIRMED:
+            # Payment was already processed, so just refresh the payment page to show it to user
+            return ""
         payment.change_status(PaymentStatus.ERROR)
         try:
             raise PayuApiError(response_dict)

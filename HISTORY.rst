@@ -3,6 +3,10 @@
 History
 -------
 
+1.2.2 (2021-11-30)
+++++++++++++++++++
+* solve the duplicate order case that errored already confirmed payment
+
 1.2.1 (2021-10-29)
 ++++++++++++++++++
 * set fraud status if PayU anti-froud error
