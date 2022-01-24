@@ -426,7 +426,7 @@ class PayuProvider(BasicProvider):
         try:
             raise PayuApiError(response_dict)
         except PayuApiError:
-            logger.exception("PayU API error")
+            logger.exception(f"PayU API error: {response_dict['status']['codeLiteral']}")
         return payment_processor.failureUrl
 
     # Method that returns all pay methods
