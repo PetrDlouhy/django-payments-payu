@@ -3,6 +3,10 @@
 History
 -------
 
+1.2.3 (2022-01-25)
+++++++++++++++++++
+* better distinct PayU API errors
+
 1.2.2 (2021-11-30)
 ++++++++++++++++++
 * solve the duplicate order case that errored already confirmed payment
