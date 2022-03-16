@@ -549,6 +549,93 @@ class TestPayuProvider(TestCase):
         self.assertEqual(self.payment.status, PaymentStatus.CONFIRMED)
         self.assertEqual(self.payment.captured_amount, Decimal("0"))
 
+    def test_process_notification_refund(self):
+        """Test processing PayU refund notification"""
+        self.set_up_provider(True, True)
+        mocked_request = MagicMock()
+        mocked_request.body = json.dumps(
+            {
+                "order": {"status": "COMPLETED"},
+                "refund": {
+                    "amount": "22000",
+                    "currencyCode": "USD",
+                    "status": "FINALIZED",
+                    "reasonDescription": "BlenderKit refund",
+                },
+            }
+        ).encode("utf8")
+        mocked_request.META = {
+            "CONTENT_TYPE": "application/json",
+            "HTTP_OPENPAYU_SIGNATURE": "signature=dd8cdddaa98438e7a76f5e830395d7e8;algorithm=MD5",
+        }
+        mocked_request.status_code = 200
+        ret_val = self.provider.process_data(
+            payment=self.payment, request=mocked_request
+        )
+        self.assertEqual(ret_val.__class__.__name__, "HttpResponse")
+        self.assertEqual(ret_val.status_code, 200)
+        self.assertEqual(ret_val.content, b"ok")
+        self.assertEqual(self.payment.status, PaymentStatus.REFUNDED)
+        self.assertEqual(self.payment.captured_amount, Decimal("0"))
+
+    def test_process_notification_partial_refund(self):
+        """Test processing PayU partial refund notification"""
+        self.payment.change_status(PaymentStatus.CONFIRMED)
+        self.payment.total = 220
+        self.payment.save()
+        self.payment.refresh_from_db()
+
+        self.set_up_provider(True, True)
+        mocked_request = MagicMock()
+        mocked_request.body = json.dumps(
+            {
+                "order": {"status": "COMPLETED"},
+                "refund": {
+                    "amount": "11000",
+                    "currencyCode": "USD",
+                    "status": "FINALIZED",
+                    "reasonDescription": "BlenderKit refund",
+                },
+            }
+        ).encode("utf8")
+        mocked_request.META = {
+            "CONTENT_TYPE": "application/json",
+            "HTTP_OPENPAYU_SIGNATURE": "signature=6f1076d9d2fa7dc58a87f20f2c69ebf8;algorithm=MD5",
+        }
+        mocked_request.status_code = 200
+        ret_val = self.provider.process_data(
+            payment=self.payment, request=mocked_request
+        )
+        self.assertEqual(ret_val.__class__.__name__, "HttpResponse")
+        self.assertEqual(ret_val.status_code, 200)
+        self.assertEqual(ret_val.content, b"ok")
+        self.payment.refresh_from_db()
+        self.assertEqual(self.payment.total, Decimal("110"))
+        self.assertEqual(self.payment.status, PaymentStatus.CONFIRMED)
+
+    def test_process_notification_refund_not_finalized(self):
+        """Test processing PayU partial refund notification"""
+        self.set_up_provider(True, True)
+        mocked_request = MagicMock()
+        mocked_request.body = json.dumps(
+            {
+                "order": {"status": "COMPLETED"},
+                "refund": {
+                    "amount": "11000",
+                    "currencyCode": "USD",
+                    "status": "FOO",
+                    "reasonDescription": "BlenderKit refund",
+                },
+            }
+        ).encode("utf8")
+        mocked_request.META = {
+            "CONTENT_TYPE": "application/json",
+            "HTTP_OPENPAYU_SIGNATURE": "signature=0af4d2830ed40ec2cea5249a172bf6d9;algorithm=MD5",
+        }
+        mocked_request.status_code = 200
+        with self.assertRaisesRegex(Exception, "Refund was not finelized"):
+            self.provider.process_data(payment=self.payment, request=mocked_request)
+
     def test_process_notification_total_amount(self):
         """Test processing PayU notification if it captures correct amount"""
         self.set_up_provider(True, True)

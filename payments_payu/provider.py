@@ -543,17 +543,17 @@ class PayuProvider(BasicProvider):
                         data["refund"]["amount"],
                         data["refund"]["currencyCode"],
                     )
-                    if (
-                        data["refund"]["status"] == "FINALIZED"
-                        and refunded_price == payment.total
-                    ):
+                    print(refunded_price, payment.total)
+                    if data["refund"]["status"] == "FINALIZED":
                         payment.message += data["refund"]["reasonDescription"]
-                        payment.change_status(PaymentStatus.REFUNDED)
+                        if refunded_price == payment.total:
+                            payment.change_status(PaymentStatus.REFUNDED)
+                        else:
+                            payment.total -= refunded_price
+                            payment.save()
                         return HttpResponse("ok", status=200)
                     else:
-                        raise Exception(
-                            "Partial refund or refund status not supported", data
-                        )
+                        raise Exception("Refund was not finelized", data)
                 else:
                     status = data["order"]["status"]
                     status_map = {
