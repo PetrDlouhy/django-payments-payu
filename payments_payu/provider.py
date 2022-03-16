@@ -33,15 +33,15 @@ sig_sorted_key_list = [
 ]
 
 CURRENCY_SUB_UNIT = {
-    'PLN': Decimal(100),
-    'EUR': Decimal(100),
-    'USD': Decimal(100),
-    'CZK': Decimal(100),
-    'GBP': Decimal(100),
+    "PLN": Decimal(100),
+    "EUR": Decimal(100),
+    "USD": Decimal(100),
+    "CZK": Decimal(100),
+    "GBP": Decimal(100),
 }
 
 
-CENTS = Decimal('0.01')
+CENTS = Decimal("0.01")
 
 
 def add_extra_data(payment, new_extra_data):
@@ -59,9 +59,9 @@ def add_new_status(payment, new_status):
         old_extra_data = json.loads(payment.extra_data)
     else:
         old_extra_data = {}
-    if 'statuses' not in old_extra_data:
-        old_extra_data['statuses'] = []
-    old_extra_data['statuses'].append(new_status)
+    if "statuses" not in old_extra_data:
+        old_extra_data["statuses"] = []
+    old_extra_data["statuses"].append(new_status)
     payment.extra_data = json.dumps(old_extra_data, indent=2)
     payment.save()
 
@@ -78,7 +78,7 @@ def dequantize_price(price, currency):
 
 # A bit hacky method, how to get html output instead of form (for PayU express form and error form)
 class HtmlOutputField(forms.HiddenInput):
-    def __init__(self, *args, html='', **kwargs):
+    def __init__(self, *args, html="", **kwargs):
         self.html = html
         return super(HtmlOutputField, self).__init__(*args, **kwargs)
 
@@ -97,10 +97,12 @@ class WidgetPaymentForm(PaymentForm):
             f"src='{payu_base_url}front/widget/js/payu-bootstrap.js' "
             "pay-button='#pay-button' {} >"
             "</script>",
-            " ".join('%s=%s' % (k, v) for k, v in script_params.items()),
+            " ".join("%s=%s" % (k, v) for k, v in script_params.items()),
         )
 
-        form_html = inline_code + """
+        form_html = (
+            inline_code
+            + """
             <script>
                 function cardSuccess($data) {
                     console.log('callback');
@@ -118,17 +120,19 @@ class WidgetPaymentForm(PaymentForm):
                 }
             </script>
             <div id="payu-widget"></div>
-            """ % (
-            urljoin(
-                get_base_url(),
-                self.payment.get_process_url(),
-            ),
-            urljoin(
-                get_base_url(),
-                self.payment.get_success_url(),
-            ),
+            """
+            % (
+                urljoin(
+                    get_base_url(),
+                    self.payment.get_process_url(),
+                ),
+                urljoin(
+                    get_base_url(),
+                    self.payment.get_success_url(),
+                ),
+            )
         )
-        self.fields['script'].widget = HtmlOutputField(html=form_html)
+        self.fields["script"].widget = HtmlOutputField(html=form_html)
         return ret
 
 
@@ -144,7 +148,7 @@ class RenewPaymentForm(PaymentForm):
 class PaymentErrorForm(forms.Form):
     script = forms.CharField(
         widget=HtmlOutputField(
-            html='<br/><strong>This payment is already being processed.<br/></strong>',
+            html="<br/><strong>This payment is already being processed.<br/></strong>",
         ),
     )
     hide_submit_button = True
@@ -156,46 +160,59 @@ class PayuApiError(Exception):
 
 
 class PayuProvider(BasicProvider):
-
     def __init__(self, *args, **kwargs):
-        self.client_secret = kwargs.pop('client_secret')
-        self.second_key = kwargs.pop('second_key')
+        self.client_secret = kwargs.pop("client_secret")
+        self.second_key = kwargs.pop("second_key")
         self.payu_sandbox = kwargs.pop("sandbox", False)
         self.payu_base_url = kwargs.pop(
             "base_payu_url",
-            "https://secure.snd.payu.com/" if self.payu_sandbox else "https://secure.payu.com/",
+            "https://secure.snd.payu.com/"
+            if self.payu_sandbox
+            else "https://secure.payu.com/",
         )
-        self.payu_auth_url = kwargs.pop('auth_url', urljoin(self.payu_base_url, "/pl/standard/user/oauth/authorize"))
-        self.payu_api_url = kwargs.pop('api_url', urljoin(self.payu_base_url, 'api/v2_1/'))
-        self.payu_token_url = kwargs.pop('token_url', urljoin(self.payu_api_url, 'tokens/'))
+        self.payu_auth_url = kwargs.pop(
+            "auth_url", urljoin(self.payu_base_url, "/pl/standard/user/oauth/authorize")
+        )
+        self.payu_api_url = kwargs.pop(
+            "api_url", urljoin(self.payu_base_url, "api/v2_1/")
+        )
+        self.payu_token_url = kwargs.pop(
+            "token_url", urljoin(self.payu_api_url, "tokens/")
+        )
         self.payu_api_order_url = urljoin(self.payu_api_url, "orders/")
         self.payu_api_paymethods_url = urljoin(self.payu_api_url, "paymethods/")
-        self.payu_widget_branding = kwargs.pop('widget_branding', False)
-        self.payu_store_card = kwargs.pop('store_card', False)
-        self.payu_shop_name = kwargs.pop('shop_name', "")
-        self.grant_type = kwargs.pop('grant_type', 'client_credentials')
-        self.recurring_payments = kwargs.pop('recurring_payments', False)
+        self.payu_widget_branding = kwargs.pop("widget_branding", False)
+        self.payu_store_card = kwargs.pop("store_card", False)
+        self.payu_shop_name = kwargs.pop("shop_name", "")
+        self.grant_type = kwargs.pop("grant_type", "client_credentials")
+        self.recurring_payments = kwargs.pop("recurring_payments", False)
 
         # Use card on file paremeter instead of recurring.
         # PayU asks CVV2 every time with this setting which can be used for testing purposes.
-        self.card_on_file = kwargs.pop('card_on_file', False)
+        self.card_on_file = kwargs.pop("card_on_file", False)
 
-        self.express_payments = kwargs.pop('express_payments', False)
+        self.express_payments = kwargs.pop("express_payments", False)
         self.retry_count = 5
 
-        self.pos_id = kwargs.pop('pos_id')
-        self.token = self.get_access_token(self.pos_id, self.client_secret, grant_type=self.grant_type)
+        self.pos_id = kwargs.pop("pos_id")
+        self.token = self.get_access_token(
+            self.pos_id, self.client_secret, grant_type=self.grant_type
+        )
         super(PayuProvider, self).__init__(*args, **kwargs)
 
     def get_sig(self, payu_data):
-        string = "".join(str(payu_data[key]) for key in sig_sorted_key_list if key in payu_data)
+        string = "".join(
+            str(payu_data[key]) for key in sig_sorted_key_list if key in payu_data
+        )
         string += self.second_key
-        return hashlib.sha256(string.encode('utf-8')).hexdigest().lower()
+        return hashlib.sha256(string.encode("utf-8")).hexdigest().lower()
 
     def auto_complete_recurring(self, payment):
         renew_token = payment.get_renew_token()
-        url = self.process_widget(payment, renew_token, recurring="STANDARD", auto_renew=True)
-        if not url.startswith("http") and url != 'success':
+        url = self.process_widget(
+            payment, renew_token, recurring="STANDARD", auto_renew=True
+        )
+        if not url.startswith("http") and url != "success":
             url = urljoin(get_base_url(), url)
         return url
 
@@ -210,9 +227,9 @@ class PayuProvider(BasicProvider):
         cvv_url = None
         if payment.extra_data:
             extra_data = json.loads(payment.extra_data)
-            if '3ds_url' in extra_data:
-                raise RedirectNeeded(extra_data['3ds_url'])
-            cvv_url = extra_data.get('cvv_url', None)
+            if "3ds_url" in extra_data:
+                raise RedirectNeeded(extra_data["3ds_url"])
+            cvv_url = extra_data.get("cvv_url", None)
 
         if payment.status != PaymentStatus.WAITING:
             return PaymentErrorForm()
@@ -232,20 +249,24 @@ class PayuProvider(BasicProvider):
             "success-callback": "cardSuccess",
         }
         if cvv_url:
-            payu_data.update({
-                'cvv-url': cvv_url,
-                'cvv-success-callback': 'cvvSuccess',
-                'widget-type': 'cvv',
-            })
+            payu_data.update(
+                {
+                    "cvv-url": cvv_url,
+                    "cvv-success-callback": "cvvSuccess",
+                    "widget-type": "cvv",
+                }
+            )
         else:
-            payu_data.update({
-                "customer-email": payment.billing_email,
-                "store-card": str(self.payu_store_card).lower(),
-                "payu-brand": str(self.payu_widget_branding).lower(),
-            })
+            payu_data.update(
+                {
+                    "customer-email": payment.billing_email,
+                    "store-card": str(self.payu_store_card).lower(),
+                    "payu-brand": str(self.payu_widget_branding).lower(),
+                }
+            )
             if self.recurring_payments:
                 payu_data["recurring-payment"] = "true"
-        payu_data['sig'] = self.get_sig(payu_data)
+        payu_data["sig"] = self.get_sig(payu_data)
 
         return WidgetPaymentForm(
             payu_base_url=self.payu_base_url,
@@ -281,7 +302,9 @@ class PayuProvider(BasicProvider):
     def process_widget(self, payment, card_token, recurring="FIRST", auto_renew=False):
         processor = self.get_processor(payment)
         if self.card_on_file:
-            processor.cardOnFile = 'FIRST' if recurring == 'FIRST' else 'STANDARD_CARDHOLDER'
+            processor.cardOnFile = (
+                "FIRST" if recurring == "FIRST" else "STANDARD_CARDHOLDER"
+            )
             # TODO: or STANDARD_MERCHANT
         elif self.recurring_payments:
             processor.recurring = recurring
@@ -298,16 +321,18 @@ class PayuProvider(BasicProvider):
 
     def post_request(self, url, *args, **kwargs):
         for i in range(1, self.retry_count):
-            kwargs['headers'] = self.get_token_headers()
+            kwargs["headers"] = self.get_token_headers()
             response = requests.post(url, *args, **kwargs)
             response_dict = json.loads(response.text)
             if (
-                    'status' in response_dict
-                    and 'statusCode' in response_dict['status']
-                    and response_dict['status']['statusCode'] == 'UNAUTHORIZED'
+                "status" in response_dict
+                and "statusCode" in response_dict["status"]
+                and response_dict["status"]["statusCode"] == "UNAUTHORIZED"
             ):
                 try:
-                    self.token = self.get_access_token(self.pos_id, self.client_secret, grant_type=self.grant_type)
+                    self.token = self.get_access_token(
+                        self.pos_id, self.client_secret, grant_type=self.grant_type
+                    )
                 except PayuApiError as e:
                     raise PayuApiError(f"Unable to regain authorization token {e}")
             else:
@@ -315,12 +340,12 @@ class PayuProvider(BasicProvider):
         raise PayuApiError("Unable to regain authorization token")
 
     def get_access_token(
-            self,
-            client_id,
-            client_secret,
-            grant_type='client_credentials',
-            email=None,
-            customer_id=None,
+        self,
+        client_id,
+        client_secret,
+        grant_type="client_credentials",
+        email=None,
+        customer_id=None,
     ):
         """
         Get access token from PayU API
@@ -330,17 +355,17 @@ class PayuProvider(BasicProvider):
 
         payu_auth_url = self.payu_auth_url
         data = {
-            'grant_type': grant_type,
-            'client_id': client_id,
-            'client_secret': client_secret,
+            "grant_type": grant_type,
+            "client_id": client_id,
+            "client_secret": client_secret,
         }
         if email:
-            data['email'] = email
+            data["email"] = email
         if customer_id:
-            data['ext_customer_id'] = customer_id
+            data["ext_customer_id"] = customer_id
 
         headers = {
-            'Content-Type': 'application/x-www-form-urlencoded',
+            "Content-Type": "application/x-www-form-urlencoded",
         }
         response = requests.post(payu_auth_url, data=data, headers=headers)
 
@@ -350,23 +375,25 @@ class PayuProvider(BasicProvider):
             raise PayuApiError(response.text)
 
         try:
-            return response_dict['access_token']
+            return response_dict["access_token"]
         except (KeyError, ValueError):
             raise PayuApiError(response_dict)
 
     def get_token_headers(self):
         return {
-            'Content-Type': 'application/json',
-            'Authorization': 'Bearer %s' % self.token,
+            "Content-Type": "application/json",
+            "Authorization": "Bearer %s" % self.token,
         }
 
     def delete_card_token(self, card_token):
         "Deactivate card token on PayU"
 
         payu_delete_token_url = urljoin(self.payu_token_url, card_token)
-        response = requests.delete(payu_delete_token_url, headers=self.get_token_headers())
+        response = requests.delete(
+            payu_delete_token_url, headers=self.get_token_headers()
+        )
 
-        return (response.status_code == 204)
+        return response.status_code == 204
 
     def create_order(self, payment, payment_processor, auto_renew=False):
         """
@@ -384,49 +411,59 @@ class PayuProvider(BasicProvider):
         )
 
         try:
-            payment.transaction_id = response_dict['orderId']
+            payment.transaction_id = response_dict["orderId"]
 
-            if 'payMethods' in response_dict:
+            if "payMethods" in response_dict:
                 payment.set_renew_token(
-                    response_dict['payMethods']['payMethod']['value'],
-                    card_expire_year=response_dict['payMethods']['payMethod']['card']['expirationYear'],
-                    card_expire_month=response_dict['payMethods']['payMethod']['card']['expirationMonth'],
-                    card_masked_number=response_dict['payMethods']['payMethod']['card']['number'],
+                    response_dict["payMethods"]["payMethod"]["value"],
+                    card_expire_year=response_dict["payMethods"]["payMethod"]["card"][
+                        "expirationYear"
+                    ],
+                    card_expire_month=response_dict["payMethods"]["payMethod"]["card"][
+                        "expirationMonth"
+                    ],
+                    card_masked_number=response_dict["payMethods"]["payMethod"]["card"][
+                        "number"
+                    ],
                     automatic_renewal=self.recurring_payments,
                 )
-            add_extra_data(payment, {'card_response': response_dict})
+            add_extra_data(payment, {"card_response": response_dict})
 
-            if response_dict['status']['statusCode'] == u'SUCCESS':
-                if 'redirectUri' in response_dict:
-                    payment.pay_link = response_dict['redirectUri']
+            if response_dict["status"]["statusCode"] == "SUCCESS":
+                if "redirectUri" in response_dict:
+                    payment.pay_link = response_dict["redirectUri"]
                     payment.save()
-                    return response_dict['redirectUri']
+                    return response_dict["redirectUri"]
                 else:
                     if auto_renew:
                         return "success"
                     return payment_processor.continueUrl
-            elif response_dict['status']['statusCode'] == u'WARNING_CONTINUE_CVV':
-                add_extra_data(payment, {'cvv_url': response_dict['redirectUri']})
+            elif response_dict["status"]["statusCode"] == "WARNING_CONTINUE_CVV":
+                add_extra_data(payment, {"cvv_url": response_dict["redirectUri"]})
                 return payment.get_payment_url()
-            elif response_dict['status']['statusCode'] == u'WARNING_CONTINUE_3DS':
-                add_extra_data(payment, {'3ds_url': response_dict['redirectUri']})
-                return response_dict['redirectUri']
+            elif response_dict["status"]["statusCode"] == "WARNING_CONTINUE_3DS":
+                add_extra_data(payment, {"3ds_url": response_dict["redirectUri"]})
+                return response_dict["redirectUri"]
         except KeyError:
             pass
 
-        if response_dict['status']['statusCode'] == 'BUSINESS_ERROR':
+        if response_dict["status"]["statusCode"] == "BUSINESS_ERROR":
             payment.change_fraud_status(FraudStatus.REJECT, message=response_dict)
         else:
             add_extra_data(payment, response_dict)
-        if response_dict['status']['statusCode'] == 'ERROR_ORDER_NOT_UNIQUE' and \
-                payment.status == PaymentStatus.CONFIRMED:
+        if (
+            response_dict["status"]["statusCode"] == "ERROR_ORDER_NOT_UNIQUE"
+            and payment.status == PaymentStatus.CONFIRMED
+        ):
             # Payment was already processed, so just refresh the payment page to show it to user
             return ""
         payment.change_status(PaymentStatus.ERROR)
         try:
             raise PayuApiError(response_dict)
         except PayuApiError:
-            logger.exception(f"PayU API error: {response_dict['status']['codeLiteral']}")
+            logger.exception(
+                f"PayU API error: {response_dict['status']['codeLiteral']}"
+            )
         return payment_processor.failureUrl
 
     # Method that returns all pay methods
@@ -434,7 +471,9 @@ class PayuProvider(BasicProvider):
     def get_paymethod_tokens(self):
         "Get pay methods of POS, if authenticated with 'trusted_merchant' grant type, it will get also card tokens"
 
-        response = requests.get(self.payu_api_paymethods_url, headers=self.get_token_headers())
+        response = requests.get(
+            self.payu_api_paymethods_url, headers=self.get_token_headers()
+        )
         response_dict = json.loads(response.text)
         return response_dict
 
@@ -451,10 +490,18 @@ class PayuProvider(BasicProvider):
         try:
             # If the payment have status WAITING_FOR_CONFIRMATION, it is needed to make two calls of DELETE
             # http://developers.payu.com/pl/restapi.html#cancellation
-            response1 = json.loads(requests.delete(url, headers=self.get_token_headers()).text)
-            response2 = json.loads(requests.delete(url, headers=self.get_token_headers()).text)
+            response1 = json.loads(
+                requests.delete(url, headers=self.get_token_headers()).text
+            )
+            response2 = json.loads(
+                requests.delete(url, headers=self.get_token_headers()).text
+            )
 
-            if response1['status']['statusCode'] == response2['status']['statusCode'] == 'SUCCESS':
+            if (
+                response1["status"]["statusCode"]
+                == response2["status"]["statusCode"]
+                == "SUCCESS"
+            ):
                 payment.change_status(PaymentStatus.REJECTED)
                 return True
             else:
@@ -465,52 +512,59 @@ class PayuProvider(BasicProvider):
     def process_notification(self, payment, request):
         try:
             json.loads(request.body.decode("utf8"))
-            header = request.META['HTTP_OPENPAYU_SIGNATURE']
+            header = request.META["HTTP_OPENPAYU_SIGNATURE"]
         except KeyError:
-            raise PayuApiError('Malformed POST')
+            raise PayuApiError("Malformed POST")
 
-        header_data_raw = header.split(';')
+        header_data_raw = header.split(";")
         header_data = {}
         for x in header_data_raw:
-            key, value = x.split('=')[0], x.split('=')[1]
+            key, value = x.split("=")[0], x.split("=")[1]
             header_data[key] = value
 
-        incoming_signature = header_data['signature']
-        algorithm = header_data['algorithm']
+        incoming_signature = header_data["signature"]
+        algorithm = header_data["algorithm"]
 
-        if algorithm == 'MD5':
+        if algorithm == "MD5":
             m = hashlib.md5()
             key = self.second_key
             signature = request.body + key.encode("utf8")
             m.update(signature)
             signature = m.hexdigest()
-            if incoming_signature == signature:  # and not payment.status == PaymentStatus.CONFIRMED:
+            if (
+                incoming_signature == signature
+            ):  # and not payment.status == PaymentStatus.CONFIRMED:
                 data = json.loads(request.body.decode("utf8"))
                 add_new_status(payment, data)
-                if 'refund' in data:
+                if "refund" in data:
                     refunded_price = dequantize_price(
-                        data['refund']['amount'],
-                        data['refund']['currencyCode'],
+                        data["refund"]["amount"],
+                        data["refund"]["currencyCode"],
                     )
-                    if data['refund']['status'] == 'FINALIZED' and refunded_price == payment.total:
-                        payment.message += data['refund']['reasonDescription']
+                    if (
+                        data["refund"]["status"] == "FINALIZED"
+                        and refunded_price == payment.total
+                    ):
+                        payment.message += data["refund"]["reasonDescription"]
                         payment.change_status(PaymentStatus.REFUNDED)
                         return HttpResponse("ok", status=200)
                     else:
-                        raise Exception("Partial refund or refund status not supported", data)
+                        raise Exception(
+                            "Partial refund or refund status not supported", data
+                        )
                 else:
-                    status = data['order']['status']
+                    status = data["order"]["status"]
                     status_map = {
-                        'COMPLETED': PaymentStatus.CONFIRMED,
-                        'PENDING': PaymentStatus.INPUT,
-                        'WAITING_FOR_CONFIRMATION': PaymentStatus.INPUT,
-                        'CANCELED': PaymentStatus.REJECTED,
-                        'NEW': PaymentStatus.WAITING,
+                        "COMPLETED": PaymentStatus.CONFIRMED,
+                        "PENDING": PaymentStatus.INPUT,
+                        "WAITING_FOR_CONFIRMATION": PaymentStatus.INPUT,
+                        "CANCELED": PaymentStatus.REJECTED,
+                        "NEW": PaymentStatus.WAITING,
                     }
-                    if PaymentStatus.CONFIRMED and 'totalAmount' in data['order']:
+                    if PaymentStatus.CONFIRMED and "totalAmount" in data["order"]:
                         payment.captured_amount = dequantize_price(
-                            data['order']['totalAmount'],
-                            data['order']['currencyCode'],
+                            data["order"]["totalAmount"],
+                            data["order"]["currencyCode"],
                         )
                     payment.change_status(status_map[status])
                     return HttpResponse("ok", status=200)
@@ -521,20 +575,36 @@ class PayuProvider(BasicProvider):
 
         renew_token = payment.get_renew_token()
 
-        if 'application/json' in request.META.get('CONTENT_TYPE', {}):
+        if "application/json" in request.META.get("CONTENT_TYPE", {}):
             return self.process_notification(payment, request)
         elif renew_token and self.recurring_payments:
-            return self.process_widget_callback(payment, renew_token, recurring="STANDARD")
-        elif 'value' in request.POST:
-            return self.process_widget_callback(payment, request.POST.get('value'), recurring="FIRST")
+            return self.process_widget_callback(
+                payment, renew_token, recurring="STANDARD"
+            )
+        elif "value" in request.POST:
+            return self.process_widget_callback(
+                payment, request.POST.get("value"), recurring="FIRST"
+            )
         else:
-            return HttpResponse("request not recognized by django-payments-payu provider", status=500)
+            return HttpResponse(
+                "request not recognized by django-payments-payu provider", status=500
+            )
 
 
 class PaymentProcessor(object):
     "Payment processor"
 
-    def __init__(self, order, notify_url, currency, description, customer_ip, total, tax, **kwargs):
+    def __init__(
+        self,
+        order,
+        notify_url,
+        currency,
+        description,
+        customer_ip,
+        total,
+        tax,
+        **kwargs,
+    ):
         self.order = order
         self.notify_url = notify_url
         self.currency = currency
@@ -549,29 +619,31 @@ class PaymentProcessor(object):
     def get_order_items(self):
         for purchased_item in self.order:
             item = {
-                'name': purchased_item.name[:127],
-                'quantity': purchased_item.quantity,
-                'unitPrice': quantize_price(purchased_item.price * purchased_item.tax_rate, self.currency),
-                'currency': purchased_item.currency,
-                'subUnit': int(CURRENCY_SUB_UNIT[self.currency]),
+                "name": purchased_item.name[:127],
+                "quantity": purchased_item.quantity,
+                "unitPrice": quantize_price(
+                    purchased_item.price * purchased_item.tax_rate, self.currency
+                ),
+                "currency": purchased_item.currency,
+                "subUnit": int(CURRENCY_SUB_UNIT[self.currency]),
             }
             yield item
 
     def set_paymethod(self, value, method_type="PBL"):
         "Set payment method, can given by PayuApi.get_paymethod_tokens()"
-        if not hasattr(self, 'paymethods'):
+        if not hasattr(self, "paymethods"):
             self.paymethods = {}
-            self.paymethods['payMethod'] = {'type': method_type, 'value': value}
+            self.paymethods["payMethod"] = {"type": method_type, "value": value}
 
-    def set_buyer_data(self, first_name, last_name, email, phone, lang_code='en'):
+    def set_buyer_data(self, first_name, last_name, email, phone, lang_code="en"):
         "Set buyer data"
-        if not hasattr(self, 'buyer'):
+        if not hasattr(self, "buyer"):
             self.buyer = {
-                'email': email,
-                'phone': phone,
-                'firstName': first_name,
-                'lastName': last_name,
-                'language': lang_code,
+                "email": email,
+                "phone": phone,
+                "firstName": first_name,
+                "lastName": last_name,
+                "language": lang_code,
             }
 
     def as_json(self):
@@ -579,33 +651,33 @@ class PaymentProcessor(object):
         products = list(self.get_order_items())
 
         json_dict = {
-            'notifyUrl': self.notify_url,
-            'customerIp': self.customer_ip,
-            'extOrderId': self.external_id,
-            'merchantPosId': self.pos_id,
-            'description': self.description,
-            'currencyCode': self.currency,
-            'totalAmount': quantize_price(self.total, self.currency),
-            'products': products,
+            "notifyUrl": self.notify_url,
+            "customerIp": self.customer_ip,
+            "extOrderId": self.external_id,
+            "merchantPosId": self.pos_id,
+            "description": self.description,
+            "currencyCode": self.currency,
+            "totalAmount": quantize_price(self.total, self.currency),
+            "products": products,
         }
 
         # additional data
-        if hasattr(self, 'paymethods'):
-            json_dict['payMethods'] = self.paymethods
+        if hasattr(self, "paymethods"):
+            json_dict["payMethods"] = self.paymethods
 
-        if hasattr(self, 'buyer'):
-            json_dict['buyer'] = self.buyer
+        if hasattr(self, "buyer"):
+            json_dict["buyer"] = self.buyer
 
-        if hasattr(self, 'continueUrl'):
-            json_dict['continueUrl'] = self.continueUrl
+        if hasattr(self, "continueUrl"):
+            json_dict["continueUrl"] = self.continueUrl
 
-        if hasattr(self, 'validityTime'):
-            json_dict['validityTime'] = self.validityTime
+        if hasattr(self, "validityTime"):
+            json_dict["validityTime"] = self.validityTime
 
-        if hasattr(self, 'recurring'):
-            json_dict['recurring'] = self.recurring
+        if hasattr(self, "recurring"):
+            json_dict["recurring"] = self.recurring
 
-        if hasattr(self, 'cardOnFile'):
-            json_dict['cardOnFile'] = self.cardOnFile
+        if hasattr(self, "cardOnFile"):
+            json_dict["cardOnFile"] = self.cardOnFile
 
         return json_dict
