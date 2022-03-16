@@ -68,10 +68,10 @@ jobs:
         run: |
           case "${{ matrix.DJANGO_VERSION }},${{ matrix.python-version }}" in
             "2.2.*,3.10"|"3.0.*,3.10"|"3.1.*,3.10")  # Django runs with warnings in this python version
-              PYTHONPATH=`pwd` coverage run --source=payments_payu ./manage.py test payments_payu
+              PYTHONPATH=`pwd` coverage run --source=payments_payu ./manage.py test
               ;;
             *)
-              PYTHONPATH=`pwd` python -W error::DeprecationWarning -m coverage run --source=payments_payu ./manage.py test payments_payu
+              PYTHONPATH=`pwd` python -W error::DeprecationWarning -m coverage run --source=payments_payu ./manage.py test
               ;;
           esac
           coverage xml && codecov
