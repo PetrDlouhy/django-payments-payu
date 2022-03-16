@@ -628,7 +628,7 @@ class PaymentProcessor(object):
                 "name": purchased_item.name[:127],
                 "quantity": purchased_item.quantity,
                 "unitPrice": quantize_price(
-                    purchased_item.price * purchased_item.tax_rate, self.currency
+                    purchased_item.price * (purchased_item.tax_rate or 1), self.currency
                 ),
                 "currency": purchased_item.currency,
                 "subUnit": int(CURRENCY_SUB_UNIT[self.currency]),
