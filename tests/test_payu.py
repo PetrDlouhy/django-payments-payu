@@ -182,7 +182,7 @@ class TestPayuProvider(TestCase):
             post = MagicMock()
             post_text = {
                 "redirectUri": "test_redirect_uri",
-                "status": {"statusCode": "FOO"},
+                "status": {"statusCode": "FOO", "codeLiteral": "Foo code"},
                 "orderId": 123,
             }
             post.text = json.dumps(post_text)
