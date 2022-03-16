@@ -445,6 +445,7 @@ class PayuProvider(BasicProvider):
 
         if "status" in response_dict:
             if response_dict["status"]["statusCode"] == "BUSINESS_ERROR":
+                # Payment rejected by PayUs anti-fruad system
                 payment.change_fraud_status(FraudStatus.REJECT, message=response_dict)
             else:
                 add_extra_data(payment, response_dict)

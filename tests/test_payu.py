@@ -5,7 +5,7 @@ from decimal import Decimal
 from unittest import TestCase
 
 from mock import MagicMock, Mock, patch
-from payments import PaymentStatus, PurchasedItem, RedirectNeeded
+from payments import FraudStatus, PaymentStatus, PurchasedItem, RedirectNeeded
 
 from payments_payu.provider import PayuApiError, PayuProvider
 
@@ -37,6 +37,7 @@ class Payment(Mock):
     currency = "USD"
     delivery = Decimal(10)
     status = PaymentStatus.WAITING
+    fraud_status = FraudStatus.UNKNOWN
     tax = Decimal(10)
     total = Decimal(220)
     billing_first_name = "Foo"
@@ -58,6 +59,10 @@ class Payment(Mock):
             }
         }
     )
+
+    def change_fraud_status(self, status, message=""):
+        self.fraud_status = status
+        self.message = message
 
     def change_status(self, status, message=""):
         self.status = status
@@ -228,6 +233,44 @@ class TestPayuProvider(TestCase):
                     "Content-Type": "application/json",
                 },
             )
+
+    def test_redirect_payu_bussiness_error(self):
+        self.set_up_provider(True, False)
+        with patch("requests.post") as mocked_post:
+            post = MagicMock()
+            post_text = {
+                "redirectUri": "test_redirect_uri",
+                "status": {"statusCode": "BUSINESS_ERROR", "codeLiteral": "Foo code"},
+                "orderId": 123,
+            }
+            post.text = json.dumps(post_text)
+            post.status_code = 200
+            mocked_post.return_value = post
+            with self.assertRaises(RedirectNeeded) as context:
+                self.provider.get_form(payment=self.payment)
+            self.assertEqual(context.exception.args[0], "http://cancel.com")
+            self.assertEqual(self.payment.fraud_status, FraudStatus.REJECT)
+
+    def test_redirect_payu_duplicate_order(self):
+        self.set_up_provider(True, False)
+        self.payment.status = PaymentStatus.CONFIRMED
+        self.payment.save()
+        with patch("requests.post") as mocked_post:
+            post = MagicMock()
+            post_text = {
+                "redirectUri": "test_redirect_uri",
+                "status": {
+                    "statusCode": "ERROR_ORDER_NOT_UNIQUE",
+                    "codeLiteral": "Foo code",
+                },
+                "orderId": 123,
+            }
+            post.text = json.dumps(post_text)
+            post.status_code = 200
+            mocked_post.return_value = post
+            with self.assertRaises(RedirectNeeded) as context:
+                self.provider.get_form(payment=self.payment)
+            self.assertEqual(context.exception.args[0], "")
 
     def test_redirect_payu_no_status_code(self):
         self.set_up_provider(True, False)
