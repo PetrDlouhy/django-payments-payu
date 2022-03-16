@@ -91,14 +91,15 @@ jobs:
 
       - name: Install
         run: |
-          pip install flake8 isort black mypy django-stubs dj_database_url types-six types-requests
+          pip install flake8 isort black mypy django-stubs dj_database_url types-six types-requests types-mock
           python setup.py develop
           pip install -e .
+          pip install -r requirements.txt
       - name: Running Flake8
         run: flake8
       - name: Running isort
-        run: python -m isort . --check-only --diff
+        run: python -m isort payments_payu --check-only --diff
       - name: Running black
-        run: black --check .
+        run: black --check payments_payu
       - name: Running mypy
-        run: mypy .
+        run: mypy payments_payu
