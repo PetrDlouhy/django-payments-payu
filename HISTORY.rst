@@ -3,6 +3,11 @@
 History
 -------
 
+1.2.4 (2022-03-17)
+++++++++++++++++++
+* treat partial refunds
+* tests for Django 2.2-4.0 Python 3.7-3.10
+
 1.2.3 (2022-01-25)
 ++++++++++++++++++
 * better distinct PayU API errors
