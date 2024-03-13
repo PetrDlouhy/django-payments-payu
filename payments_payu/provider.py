@@ -163,9 +163,11 @@ class PayuProvider(BasicProvider):
         self.payu_sandbox = kwargs.pop("sandbox", False)
         self.payu_base_url = kwargs.pop(
             "base_payu_url",
-            "https://secure.snd.payu.com/"
-            if self.payu_sandbox
-            else "https://secure.payu.com/",
+            (
+                "https://secure.snd.payu.com/"
+                if self.payu_sandbox
+                else "https://secure.payu.com/"
+            ),
         )
         self.payu_auth_url = kwargs.pop(
             "auth_url", urljoin(self.payu_base_url, "/pl/standard/user/oauth/authorize")
