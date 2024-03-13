@@ -556,7 +556,6 @@ class PayuProvider(BasicProvider):
                     else:
                         raise Exception("Refund was not finelized", data)
                 else:
-                    status = data["order"]["status"]
                     status_map = {
                         "COMPLETED": PaymentStatus.CONFIRMED,
                         "PENDING": PaymentStatus.INPUT,
@@ -564,12 +563,16 @@ class PayuProvider(BasicProvider):
                         "CANCELED": PaymentStatus.REJECTED,
                         "NEW": PaymentStatus.WAITING,
                     }
-                    if PaymentStatus.CONFIRMED and "totalAmount" in data["order"]:
+                    status = status_map[data["order"]["status"]]
+                    if (
+                        status == PaymentStatus.CONFIRMED
+                        and "totalAmount" in data["order"]
+                    ):
                         payment.captured_amount = dequantize_price(
                             data["order"]["totalAmount"],
                             data["order"]["currencyCode"],
                         )
-                    payment.change_status(status_map[status])
+                    payment.change_status(status)
                     return HttpResponse("ok", status=200)
         return HttpResponse("not ok", status=500)
 

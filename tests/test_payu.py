@@ -592,6 +592,38 @@ class TestPayuProvider(TestCase):
         self.assertEqual(self.payment.status, PaymentStatus.CONFIRMED)
         self.assertEqual(self.payment.captured_amount, Decimal("0"))
 
+    def test_process_notification_cancelled(self):
+        """Test processing PayU cancelled notification"""
+        self.set_up_provider(True, True)
+        self.payment.transaction_id = "123"
+        self.payment.save()
+        mocked_request = MagicMock()
+        mocked_request.body = json.dumps(
+            {
+                "order": dict(
+                    self.provider.get_processor(self.payment).as_json(),
+                    orderId=self.payment.transaction_id,
+                    orderCreateDate="2012-12-31T12:00:00",
+                    status="CANCELED",
+                )
+            }
+        ).encode("utf8")
+        mocked_request.META = {
+            "CONTENT_TYPE": "application/json",
+            "HTTP_OPENPAYU_SIGNATURE": "signature=f376048898aa0c629d1f64317ce13736;algorithm=MD5",
+        }
+        mocked_request.status_code = 200
+
+        ret_val = self.provider.process_data(
+            payment=self.payment, request=mocked_request
+        )
+
+        self.assertEqual(ret_val.__class__.__name__, "HttpResponse")
+        self.assertEqual(ret_val.status_code, 200)
+        self.assertEqual(ret_val.content, b"ok")
+        self.assertEqual(self.payment.status, PaymentStatus.REJECTED)
+        self.assertEqual(self.payment.captured_amount, Decimal("0"))
+
     def test_process_notification_refund(self):
         """Test processing PayU refund notification"""
         self.set_up_provider(True, True)

@@ -3,6 +3,10 @@
 History
 -------
 
+Unreleased
+++++++++++
+* update payment.captured_amount only when order is completed
+
 1.2.3 (2022-01-25)
 ++++++++++++++++++
 * better distinct PayU API errors
