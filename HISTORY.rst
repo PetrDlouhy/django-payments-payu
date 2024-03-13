@@ -6,6 +6,7 @@ History
 Unreleased
 ++++++++++
 * update payment.captured_amount only when order is completed
+* subtract refunds from payment.captured_amount rather than from payment.total
 
 1.2.3 (2022-01-25)
 ++++++++++++++++++

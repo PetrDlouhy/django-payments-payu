@@ -547,10 +547,10 @@ class PayuProvider(BasicProvider):
                     print(refunded_price, payment.total)
                     if data["refund"]["status"] == "FINALIZED":
                         payment.message += data["refund"]["reasonDescription"]
-                        if refunded_price == payment.total:
+                        if refunded_price == payment.captured_amount:
                             payment.change_status(PaymentStatus.REFUNDED)
                         else:
-                            payment.total -= refunded_price
+                            payment.captured_amount -= refunded_price
                             payment.save()
                         return HttpResponse("ok", status=200)
                     else:

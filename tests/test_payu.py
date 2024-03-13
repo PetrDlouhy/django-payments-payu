@@ -626,6 +626,10 @@ class TestPayuProvider(TestCase):
 
     def test_process_notification_refund(self):
         """Test processing PayU refund notification"""
+        self.payment.captured_amount = self.payment.total
+        self.payment.change_status(PaymentStatus.CONFIRMED)
+        self.payment.save()
+
         self.set_up_provider(True, True)
         mocked_request = MagicMock()
         mocked_request.body = json.dumps(
@@ -651,12 +655,14 @@ class TestPayuProvider(TestCase):
         self.assertEqual(ret_val.status_code, 200)
         self.assertEqual(ret_val.content, b"ok")
         self.assertEqual(self.payment.status, PaymentStatus.REFUNDED)
-        self.assertEqual(self.payment.captured_amount, Decimal("0"))
+        self.assertEqual(self.payment.total, Decimal(220))
+        self.assertEqual(self.payment.captured_amount, Decimal(220))
 
     def test_process_notification_partial_refund(self):
         """Test processing PayU partial refund notification"""
         self.payment.change_status(PaymentStatus.CONFIRMED)
         self.payment.total = 220
+        self.payment.captured_amount = self.payment.total
         self.payment.save()
         self.payment.refresh_from_db()
 
@@ -685,7 +691,8 @@ class TestPayuProvider(TestCase):
         self.assertEqual(ret_val.status_code, 200)
         self.assertEqual(ret_val.content, b"ok")
         self.payment.refresh_from_db()
-        self.assertEqual(self.payment.total, Decimal("110"))
+        self.assertEqual(self.payment.total, Decimal(220))
+        self.assertEqual(self.payment.captured_amount, Decimal("110"))
         self.assertEqual(self.payment.status, PaymentStatus.CONFIRMED)
 
     def test_process_notification_refund_not_finalized(self):
