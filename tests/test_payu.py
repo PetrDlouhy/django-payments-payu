@@ -1,5 +1,6 @@
 from __future__ import unicode_literals
 
+import contextlib
 import json
 from decimal import Decimal
 from unittest import TestCase
@@ -111,7 +112,13 @@ class TestPayuProvider(TestCase):
     def setUp(self):
         self.payment = Payment()
 
-    def set_up_provider(self, recurring, express):
+    def set_up_provider(
+        self,
+        recurring,
+        express,
+        get_refund_description=lambda payment, amount: "test",
+        **kwargs,
+    ):
         with patch("requests.post") as mocked_post:
             data = MagicMock()
             data = '{"access_token": "test_access_token"}'
@@ -127,6 +134,8 @@ class TestPayuProvider(TestCase):
                 base_payu_url="http://mock.url/",
                 recurring_payments=recurring,
                 express_payments=express,
+                get_refund_description=get_refund_description,
+                **kwargs,
             )
 
     def test_redirect_to_recurring_payment(self):
@@ -1068,3 +1077,511 @@ class TestPayuProvider(TestCase):
                 },
             )
         self.assertEqual(self.payment.status, PaymentStatus.WAITING)
+
+    def test_refund(self):
+        self.set_up_provider(
+            True,
+            True,
+            get_refund_description=lambda payment, amount: f"desc {payment.transaction_id} {amount}",
+            get_refund_ext_id=lambda payment, amount: f"ext {payment.transaction_id} {amount}",
+        )
+        payment_extra_data_refund_response_previous = {
+            "orderId": "1234",
+            "refund": {
+                "refundId": "5000009986",
+                "extRefundId": "ext 1234 10",
+                "amount": "1000",
+                "currencyCode": "USD",
+                "description": "desc 1234 10",
+                "creationDateTime": "2020-07-02T08:19:03.896+02:00",
+                "status": "PENDING",
+                "statusDateTime": "2020-07-02T08:19:04.013+02:00",
+            },
+            "status": {
+                "statusCode": "SUCCESS",
+                "statusDesc": "Refund queued for processing",
+            },
+        }
+        self.payment.transaction_id = "1234"
+        self.payment.captured_amount = Decimal(210)
+        self.payment.extra_data = json.dumps(
+            {"refund_responses": [payment_extra_data_refund_response_previous]}
+        )
+        self.payment.change_status(PaymentStatus.CONFIRMED)
+        self.payment.save()
+        refund_request_response_body = {
+            "orderId": "1234",
+            "refund": {
+                "refundId": "5000009987",
+                "extRefundId": "ext 1234 110",
+                "amount": "11000",
+                "currencyCode": "USD",
+                "description": "desc 1234 110",
+                "creationDateTime": "2020-07-02T09:19:03.896+02:00",
+                "status": "PENDING",
+                "statusDateTime": "2020-07-02T09:19:04.013+02:00",
+            },
+            "status": {
+                "statusCode": "SUCCESS",
+                "statusDesc": "Refund queued for processing",
+            },
+        }
+        refund_request_patch = self._patch_refund(
+            base_payu_url="http://mock.url",
+            order_id="1234",
+            access_token="test_access_token",
+            amount=11000,
+            currency_code="USD",
+            description="desc 1234 110",
+            ext_refund_id="ext 1234 110",
+            response_body=refund_request_response_body,
+        )
+
+        with refund_request_patch as refund_request_mock:
+            amount = self.provider.refund(self.payment, Decimal(110))
+
+        payment_extra_data_refund_responses = json.loads(self.payment.extra_data)[
+            "refund_responses"
+        ]
+        self.assertEqual(refund_request_mock.call_count, 1)
+        self.assertEqual(amount, Decimal(110))
+        self.assertEqual(self.payment.total, Decimal(220))
+        self.assertEqual(self.payment.captured_amount, Decimal(210))
+        self.assertEqual(self.payment.status, PaymentStatus.CONFIRMED)
+        self.assertEqual(
+            payment_extra_data_refund_responses,
+            [payment_extra_data_refund_response_previous, refund_request_response_body],
+        )
+
+    def test_refund_no_amount(self):
+        self.set_up_provider(
+            True,
+            True,
+            get_refund_description=lambda payment, amount: f"desc {payment.transaction_id} {amount}",
+            get_refund_ext_id=lambda payment, amount: f"ext {payment.transaction_id} {amount}",
+        )
+        self.payment.transaction_id = "1234"
+        self.payment.captured_amount = self.payment.total
+        self.payment.change_status(PaymentStatus.CONFIRMED)
+        self.payment.save()
+        refund_request_response_body = {
+            "orderId": "1234",
+            "refund": {
+                "refundId": "5000009987",
+                "extRefundId": "ext 1234 None",
+                "amount": "22000",
+                "currencyCode": "USD",
+                "description": "desc 1234 None",
+                "creationDateTime": "2020-07-02T09:19:03.896+02:00",
+                "status": "PENDING",
+                "statusDateTime": "2020-07-02T09:19:04.013+02:00",
+            },
+            "status": {
+                "statusCode": "SUCCESS",
+                "statusDesc": "Refund queued for processing",
+            },
+        }
+        refund_request_patch = self._patch_refund(
+            base_payu_url="http://mock.url",
+            order_id="1234",
+            access_token="test_access_token",
+            amount=None,
+            currency_code="USD",
+            description="desc 1234 None",
+            ext_refund_id="ext 1234 None",
+            response_body=refund_request_response_body,
+        )
+
+        with refund_request_patch as refund_request_mock:
+            amount = self.provider.refund(self.payment)
+
+        payment_extra_data_refund_responses = json.loads(self.payment.extra_data)[
+            "refund_responses"
+        ]
+        self.assertEqual(refund_request_mock.call_count, 1)
+        self.assertEqual(amount, Decimal(220))
+        self.assertEqual(self.payment.total, Decimal(220))
+        self.assertEqual(self.payment.captured_amount, Decimal(220))
+        self.assertEqual(self.payment.status, PaymentStatus.CONFIRMED)
+        self.assertEqual(
+            payment_extra_data_refund_responses, [refund_request_response_body]
+        )
+
+    def test_refund_no_get_refund_ext_id(self):
+        self.set_up_provider(
+            True,
+            True,
+            get_refund_description=lambda payment, amount: f"desc {payment.transaction_id} {amount}",
+        )
+        self.payment.transaction_id = "1234"
+        self.payment.captured_amount = self.payment.total
+        self.payment.change_status(PaymentStatus.CONFIRMED)
+        self.payment.save()
+        refund_request_response_body = {
+            "orderId": "1234",
+            "refund": {
+                "refundId": "5000009987",
+                "extRefundId": "caf231c5-cbc1-4af3-96b7-95798b1cb846",
+                "amount": "11000",
+                "currencyCode": "USD",
+                "description": "desc 1234 110",
+                "creationDateTime": "2020-07-02T09:19:03.896+02:00",
+                "status": "PENDING",
+                "statusDateTime": "2020-07-02T09:19:04.013+02:00",
+            },
+            "status": {
+                "statusCode": "SUCCESS",
+                "statusDesc": "Refund queued for processing",
+            },
+        }
+        refund_request_patch = self._patch_refund(
+            base_payu_url="http://mock.url",
+            order_id="1234",
+            access_token="test_access_token",
+            amount=11000,
+            currency_code="USD",
+            description="desc 1234 110",
+            ext_refund_id="caf231c5-cbc1-4af3-96b7-95798b1cb846",
+            response_body=refund_request_response_body,
+        )
+
+        with refund_request_patch as refund_request_mock:
+            with patch(
+                "uuid.uuid4", return_value="caf231c5-cbc1-4af3-96b7-95798b1cb846"
+            ):
+                amount = self.provider.refund(self.payment, Decimal(110))
+
+        payment_extra_data_refund_responses = json.loads(self.payment.extra_data)[
+            "refund_responses"
+        ]
+        self.assertEqual(refund_request_mock.call_count, 1)
+        self.assertEqual(amount, Decimal(110))
+        self.assertEqual(self.payment.total, Decimal(220))
+        self.assertEqual(self.payment.captured_amount, Decimal(220))
+        self.assertEqual(self.payment.status, PaymentStatus.CONFIRMED)
+        self.assertEqual(
+            payment_extra_data_refund_responses, [refund_request_response_body]
+        )
+
+    def test_refund_no_ext_id(self):
+        self.set_up_provider(
+            True,
+            True,
+            get_refund_description=lambda payment, amount: f"desc {payment.transaction_id} {amount}",
+            get_refund_ext_id=lambda payment, amount: None,
+        )
+        self.payment.transaction_id = "1234"
+        self.payment.captured_amount = self.payment.total
+        self.payment.change_status(PaymentStatus.CONFIRMED)
+        self.payment.save()
+        refund_request_response_body = {
+            "orderId": "1234",
+            "refund": {
+                "refundId": "5000009987",
+                "amount": "11000",
+                "currencyCode": "USD",
+                "description": "desc 1234 110",
+                "creationDateTime": "2020-07-02T09:19:03.896+02:00",
+                "status": "PENDING",
+                "statusDateTime": "2020-07-02T09:19:04.013+02:00",
+            },
+            "status": {
+                "statusCode": "SUCCESS",
+                "statusDesc": "Refund queued for processing",
+            },
+        }
+        refund_request_patch = self._patch_refund(
+            base_payu_url="http://mock.url",
+            order_id="1234",
+            access_token="test_access_token",
+            amount=11000,
+            currency_code="USD",
+            description="desc 1234 110",
+            ext_refund_id=None,
+            response_body=refund_request_response_body,
+        )
+
+        with refund_request_patch as refund_request_mock:
+            amount = self.provider.refund(self.payment, Decimal(110))
+
+        payment_extra_data_refund_responses = json.loads(self.payment.extra_data)[
+            "refund_responses"
+        ]
+        self.assertEqual(refund_request_mock.call_count, 1)
+        self.assertEqual(amount, Decimal(110))
+        self.assertEqual(self.payment.total, Decimal(220))
+        self.assertEqual(self.payment.captured_amount, Decimal(220))
+        self.assertEqual(self.payment.status, PaymentStatus.CONFIRMED)
+        self.assertEqual(
+            payment_extra_data_refund_responses, [refund_request_response_body]
+        )
+
+    def test_refund_no_ext_id_twice(self):
+        self.set_up_provider(
+            True,
+            True,
+            get_refund_description=lambda payment, amount: f"desc {payment.transaction_id} {amount}",
+            get_refund_ext_id=lambda payment, amount: None,
+        )
+        self.payment.transaction_id = "1234"
+        self.payment.captured_amount = self.payment.total
+        self.payment.change_status(PaymentStatus.CONFIRMED)
+        self.payment.save()
+        refund_request_response_body = {
+            "orderId": "1234",
+            "refund": {
+                "refundId": "5000009987",
+                "amount": "20000",
+                "currencyCode": "USD",
+                "description": "desc 1234 200",
+                "creationDateTime": "2020-07-02T09:19:03.896+02:00",
+                "status": "PENDING",
+                "statusDateTime": "2020-07-02T09:19:04.013+02:00",
+            },
+            "status": {
+                "statusCode": "SUCCESS",
+                "statusDesc": "Refund queued for processing",
+            },
+        }
+        refund_request_patch = self._patch_refund(
+            base_payu_url="http://mock.url",
+            order_id="1234",
+            access_token="test_access_token",
+            amount=20000,
+            currency_code="USD",
+            description="desc 1234 200",
+            ext_refund_id=None,
+            response_body=refund_request_response_body,
+        )
+
+        with refund_request_patch as refund_request_mock:
+            amount1 = self.provider.refund(self.payment, Decimal(200))
+            amount2 = self.provider.refund(self.payment, Decimal(200))
+
+        payment_extra_data_refund_responses = json.loads(self.payment.extra_data)[
+            "refund_responses"
+        ]
+        self.assertEqual(refund_request_mock.call_count, 2)
+        self.assertEqual(amount2, amount1)
+        self.assertEqual(amount2, Decimal(200))
+        self.assertEqual(self.payment.total, Decimal(220))
+        self.assertEqual(self.payment.captured_amount, Decimal(220))
+        self.assertEqual(self.payment.status, PaymentStatus.CONFIRMED)
+        self.assertEqual(
+            payment_extra_data_refund_responses,
+            [refund_request_response_body, refund_request_response_body],
+        )
+
+    def test_refund_finalized(self):
+        self.set_up_provider(
+            True,
+            True,
+            get_refund_description=lambda payment, amount: f"desc {payment.transaction_id} {amount}",
+            get_refund_ext_id=lambda payment, amount: f"ext {payment.transaction_id} {amount}",
+        )
+        self.payment.transaction_id = "1234"
+        self.payment.captured_amount = self.payment.total
+        self.payment.change_status(PaymentStatus.CONFIRMED)
+        self.payment.save()
+        refund_request_response_body = {
+            "orderId": "1234",
+            "refund": {
+                "refundId": "5000009987",
+                "extRefundId": "ext 1234 110",
+                "amount": "11000",
+                "currencyCode": "USD",
+                "description": "desc 1234 110",
+                "creationDateTime": "2020-07-02T09:19:03.896+02:00",
+                "status": "FINALIZED",
+                "statusDateTime": "2020-07-02T09:19:04.013+02:00",
+            },
+            "status": {
+                "statusCode": "SUCCESS",
+                "statusDesc": "Refund queued for processing",
+            },
+        }
+        refund_request_patch = self._patch_refund(
+            base_payu_url="http://mock.url",
+            order_id="1234",
+            access_token="test_access_token",
+            amount=11000,
+            currency_code="USD",
+            description="desc 1234 110",
+            ext_refund_id="ext 1234 110",
+            response_body=refund_request_response_body,
+        )
+
+        with refund_request_patch as refund_request_mock:
+            amount = self.provider.refund(self.payment, Decimal(110))
+
+        payment_extra_data_refund_responses = json.loads(self.payment.extra_data)[
+            "refund_responses"
+        ]
+        self.assertEqual(refund_request_mock.call_count, 1)
+        self.assertEqual(amount, Decimal(110))
+        self.assertEqual(self.payment.total, Decimal(220))
+        self.assertEqual(self.payment.captured_amount, Decimal(220))
+        self.assertEqual(self.payment.status, PaymentStatus.CONFIRMED)
+        self.assertEqual(
+            payment_extra_data_refund_responses, [refund_request_response_body]
+        )
+
+    def test_refund_canceled(self):
+        self.set_up_provider(
+            True,
+            True,
+            get_refund_description=lambda payment, amount: f"desc {payment.transaction_id} {amount}",
+            get_refund_ext_id=lambda payment, amount: f"ext {payment.transaction_id} {amount}",
+        )
+        self.payment.transaction_id = "1234"
+        self.payment.captured_amount = self.payment.total
+        self.payment.change_status(PaymentStatus.CONFIRMED)
+        self.payment.save()
+        refund_request_response_body = {
+            "orderId": "1234",
+            "refund": {
+                "refundId": "5000009987",
+                "extRefundId": "ext 1234 110",
+                "amount": "11000",
+                "currencyCode": "USD",
+                "description": "desc 1234 110",
+                "creationDateTime": "2020-07-02T09:19:03.896+02:00",
+                "status": "CANCELED",
+                "statusDateTime": "2020-07-02T09:19:04.013+02:00",
+            },
+            "status": {
+                "statusCode": "SUCCESS",
+                "statusDesc": "Refund queued for processing",
+            },
+        }
+        refund_request_patch = self._patch_refund(
+            base_payu_url="http://mock.url",
+            order_id="1234",
+            access_token="test_access_token",
+            amount=11000,
+            currency_code="USD",
+            description="desc 1234 110",
+            ext_refund_id="ext 1234 110",
+            response_body=refund_request_response_body,
+        )
+
+        with self.assertRaisesRegex(
+            ValueError, "refund 5000009987 of payment 1 canceled"
+        ):
+            with refund_request_patch as refund_request_mock:
+                self.provider.refund(self.payment, Decimal(110))
+
+        payment_extra_data_refund_responses = json.loads(self.payment.extra_data)[
+            "refund_responses"
+        ]
+        self.assertEqual(refund_request_mock.call_count, 1)
+        self.assertEqual(self.payment.total, Decimal(220))
+        self.assertEqual(self.payment.captured_amount, Decimal(220))
+        self.assertEqual(self.payment.status, PaymentStatus.CONFIRMED)
+        self.assertEqual(
+            payment_extra_data_refund_responses, [refund_request_response_body]
+        )
+
+    def test_refund_error(self):
+        self.set_up_provider(
+            True,
+            True,
+            get_refund_description=lambda payment, amount: f"desc {payment.transaction_id} {amount}",
+            get_refund_ext_id=lambda payment, amount: f"ext {payment.transaction_id} {amount}",
+        )
+        self.payment.transaction_id = "1234"
+        self.payment.captured_amount = self.payment.total
+        self.payment.change_status(PaymentStatus.CONFIRMED)
+        self.payment.save()
+        refund_request_response_body = {
+            "status": {
+                "statusCode": "OPENPAYU_BUSINESS_ERROR",
+                "severity": "ERROR",
+                "code": "9102",
+                "codeLiteral": "NO_BALANCE",
+                "statusDesc": "Lack of funds in account",
+            }
+        }
+        refund_request_patch = self._patch_refund(
+            base_payu_url="http://mock.url",
+            order_id="1234",
+            access_token="test_access_token",
+            amount=11000,
+            currency_code="USD",
+            description="desc 1234 110",
+            ext_refund_id="ext 1234 110",
+            response_body=refund_request_response_body,
+        )
+
+        with self.assertRaisesRegex(
+            ValueError,
+            r"refund \?\?\? of payment 1 failed: code=9102, "
+            r"statusCode=OPENPAYU_BUSINESS_ERROR, "
+            r"codeLiteral=NO_BALANCE, "
+            r"statusDesc=Lack of funds in account",
+        ):
+            with refund_request_patch as refund_request_mock:
+                self.provider.refund(self.payment, Decimal(110))
+
+        payment_extra_data_refund_responses = json.loads(self.payment.extra_data)[
+            "refund_responses"
+        ]
+        self.assertEqual(refund_request_mock.call_count, 1)
+        self.assertEqual(self.payment.total, Decimal(220))
+        self.assertEqual(self.payment.captured_amount, Decimal(220))
+        self.assertEqual(self.payment.status, PaymentStatus.CONFIRMED)
+        self.assertEqual(
+            payment_extra_data_refund_responses, [refund_request_response_body]
+        )
+
+    @contextlib.contextmanager
+    def _patch_refund(
+        self,
+        base_payu_url,
+        order_id,
+        access_token,
+        currency_code,
+        description,
+        response_body,
+        amount=None,
+        ext_refund_id=None,
+    ):
+        requests_post_patch = patch(
+            "requests.post",
+            return_value=MagicMock(status_code=200, text=json.dumps(response_body)),
+        )
+        with requests_post_patch as requests_post_mock:
+            yield requests_post_mock
+            for requests_post_mock_call in requests_post_mock.call_args_list:
+                requests_post_mock_call_data_actual_json = (
+                    requests_post_mock_call.kwargs.pop("data")
+                )
+                self.assertEqual(
+                    requests_post_mock_call.args,
+                    (f"{base_payu_url}/api/v2_1/orders/{order_id}/refunds",),
+                )
+                self.assertEqual(
+                    requests_post_mock_call.kwargs,
+                    {
+                        "headers": {
+                            "Authorization": f"Bearer {access_token}",
+                            "Content-Type": "application/json",
+                        }
+                    },
+                )
+                requests_post_mock_call_data_expected = {
+                    "refund": {
+                        "currencyCode": currency_code,
+                        "description": description,
+                    }
+                }
+                if amount is not None:
+                    requests_post_mock_call_data_expected["refund"]["amount"] = amount
+                if ext_refund_id is not None:
+                    requests_post_mock_call_data_expected["refund"][
+                        "extRefundId"
+                    ] = ext_refund_id
+                self.assertEqual(
+                    json.loads(requests_post_mock_call_data_actual_json),
+                    requests_post_mock_call_data_expected,
+                )

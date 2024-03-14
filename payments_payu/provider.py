@@ -1,6 +1,7 @@
 import hashlib
 import json
 import logging
+import uuid
 from decimal import ROUND_HALF_UP, Decimal
 from urllib.parse import urljoin
 
@@ -175,13 +176,17 @@ class PayuProvider(BasicProvider):
         self.payu_token_url = kwargs.pop(
             "token_url", urljoin(self.payu_api_url, "tokens/")
         )
-        self.payu_api_order_url = urljoin(self.payu_api_url, "orders/")
+        self.payu_api_orders_url = urljoin(self.payu_api_url, "orders/")
         self.payu_api_paymethods_url = urljoin(self.payu_api_url, "paymethods/")
         self.payu_widget_branding = kwargs.pop("widget_branding", False)
         self.payu_store_card = kwargs.pop("store_card", False)
         self.payu_shop_name = kwargs.pop("shop_name", "")
         self.grant_type = kwargs.pop("grant_type", "client_credentials")
         self.recurring_payments = kwargs.pop("recurring_payments", False)
+        self.get_refund_description = kwargs.pop("get_refund_description")
+        self.get_refund_ext_id = kwargs.pop(
+            "get_refund_ext_id", lambda payment, amount: str(uuid.uuid4())
+        )
 
         # Use card on file paremeter instead of recurring.
         # PayU asks CVV2 every time with this setting which can be used for testing purposes.
@@ -195,6 +200,9 @@ class PayuProvider(BasicProvider):
             self.pos_id, self.client_secret, grant_type=self.grant_type
         )
         super(PayuProvider, self).__init__(*args, **kwargs)
+
+    def _get_payu_api_order_url(self, order_id):
+        return urljoin(self.payu_api_orders_url, order_id)
 
     def get_sig(self, payu_data):
         string = "".join(
@@ -401,7 +409,7 @@ class PayuProvider(BasicProvider):
         payment_processor.pos_id = self.pos_id
         json_data = payment_processor.as_json()
         response_dict = self.post_request(
-            self.payu_api_order_url,
+            self.payu_api_orders_url,
             data=json.dumps(json_data),
             allow_redirects=False,
         )
@@ -485,10 +493,7 @@ class PayuProvider(BasicProvider):
     def reject_order(self, payment):
         "Reject order"
 
-        url = urljoin(
-            self.payu_api_order_url,
-            payment.transaction_id,
-        )
+        url = self._get_payu_api_order_url(payment.transaction_id)
 
         try:
             # If the payment have status WAITING_FOR_CONFIRMATION, it is needed to make two calls of DELETE
@@ -595,6 +600,90 @@ class PayuProvider(BasicProvider):
             return HttpResponse(
                 "request not recognized by django-payments-payu provider", status=500
             )
+
+    def refund(self, payment, amount=None):
+        request_url = self._get_payu_api_order_url(payment.transaction_id) + "/refunds"
+
+        request_data = {
+            "refund": {
+                "currencyCode": payment.currency,
+                "description": self.get_refund_description(
+                    payment=payment, amount=amount
+                ),
+            }
+        }
+        if amount is not None:
+            request_data.setdefault("refund", {}).setdefault(
+                "amount", quantize_price(amount, payment.currency)
+            )
+        ext_refund_id = self.get_refund_ext_id(payment=payment, amount=amount)
+        if ext_refund_id is not None:
+            request_data.setdefault("refund", {}).setdefault(
+                "extRefundId", ext_refund_id
+            )
+
+        response = self.post_request(request_url, data=json.dumps(request_data))
+
+        payment_extra_data = json.loads(payment.extra_data or "{}")
+        payment_extra_data_refund_responses = payment_extra_data.setdefault(
+            "refund_responses", []
+        )
+        payment_extra_data_refund_responses.append(response)
+        payment.extra_data = json.dumps(payment_extra_data, indent=2)
+        payment.save()
+
+        try:
+            refund = response["refund"]
+            refund_id = refund["refundId"]
+        except Exception:
+            refund_id = None
+
+        try:
+            response_status = dict(response["status"])
+            response_status_code = response_status["statusCode"]
+        except Exception:
+            raise ValueError(
+                f"invalid response to refund {refund_id or '???'} of payment {payment.id}: {response}"
+            )
+        if response_status_code != "SUCCESS":
+            raise ValueError(
+                f"refund {refund_id or '???'} of payment {payment.id} failed: "
+                f"code={response_status.get('code', '???')}, "
+                f"statusCode={response_status_code}, "
+                f"codeLiteral={response_status.get('codeLiteral', '???')}, "
+                f"statusDesc={response_status.get('statusDesc', '???')}"
+            )
+        if refund_id is None:
+            raise ValueError(
+                f"invalid response to refund of payment {payment.id}: {response}"
+            )
+
+        try:
+            refund_order_id = response["orderId"]
+            refund_status = refund["status"]
+            refund_currency = refund["currencyCode"]
+            refund_amount = dequantize_price(refund["amount"], refund_currency)
+        except Exception:
+            raise ValueError(
+                f"invalid response to refund {refund_id} of payment {payment.id}: {response}"
+            )
+        if refund_order_id != payment.transaction_id:
+            raise NotImplementedError(
+                f"response of refund {refund_id} of payment {payment.id} containing a different order_id "
+                f"not supported yet: {refund_order_id}"
+            )
+        if refund_status == "CANCELED":
+            raise ValueError(f"refund {refund_id} of payment {payment.id} canceled")
+        elif refund_status not in {"PENDING", "FINALIZED"}:
+            raise ValueError(
+                f"invalid status of refund {refund_id} of payment {payment.id}"
+            )
+        if refund_currency != payment.currency:
+            raise NotImplementedError(
+                f"refund {refund_id} of payment {payment.id} in different currency not supported yet: "
+                f"{refund_currency}"
+            )
+        return refund_amount
 
 
 class PaymentProcessor(object):

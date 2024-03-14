@@ -5,6 +5,7 @@ History
 
 Unreleased
 ++++++++++
+* add PayuProvider.refund
 * update payment.captured_amount only when order is completed
 * subtract refunds from payment.captured_amount rather than from payment.total
 
