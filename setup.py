@@ -45,6 +45,7 @@ setup(
     name="django-payments-payu",
     version=version,
     description="""PayU payments provider for django-payments""",
+    long_description_content_type='text/x-rst',
     long_description=readme + "\n\n" + history,
     author="Petr Dlouhý",
     author_email="petr.dlouhy@email.cz",
