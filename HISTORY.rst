@@ -3,6 +3,10 @@
 History
 -------
 
+1.3.1 (2024-03-19)
+******************
+* Fix description on PyPI
+
 1.3.0 (2024-03-19)
 ******************
 * add PayuProvider.refund
