@@ -9,6 +9,7 @@ History
 * add PayuProvider.refund
 * update payment.captured_amount only when order is completed
 * subtract refunds from payment.captured_amount rather than from payment.total
+* tests for Django 2.2-5.0 Python 3.7-3.12
 
 1.2.4 (2022-03-17)
 ++++++++++++++++++
