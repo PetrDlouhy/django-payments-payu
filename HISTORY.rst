@@ -6,9 +6,12 @@ History
 Unreleased
 **********
 * fix backward compatibility by making PayuProvider's get_refund_description argument optional
+* add `renewal_triggered_by` parameter to `payment.set_renew_token`
 * make PayuProvider.refund fail if get_refund_description is not provided
 * make PayuProvider.refund raise PayuApiError if an unexpected response is received
 * deprecate the default value of get_refund_description; set it to a callable instead
+* deprecate `automatic_renewal` parameter of `payment.set_renew_token`; use `renewal_triggered_by` parameter instead
+* deprecate `None` value of `renewal_triggered_by` parameter of `payment.set_renew_token`; set `"user"`/`"task"`/`"other"` instead
 
 1.3.1 (2024-03-19)
 ******************

@@ -441,7 +441,7 @@ class PayuProvider(BasicProvider):
                     card_masked_number=response_dict["payMethods"]["payMethod"]["card"][
                         "number"
                     ],
-                    automatic_renewal=self.recurring_payments,
+                    renewal_triggered_by="task" if self.recurring_payments else "user",
                 )
             add_extra_data(payment, {"card_response": response_dict})
 
