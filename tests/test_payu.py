@@ -2,6 +2,7 @@ from __future__ import unicode_literals
 
 import contextlib
 import json
+import warnings
 from decimal import Decimal
 from unittest import TestCase
 
@@ -112,13 +113,7 @@ class TestPayuProvider(TestCase):
     def setUp(self):
         self.payment = Payment()
 
-    def set_up_provider(
-        self,
-        recurring,
-        express,
-        get_refund_description=lambda payment, amount: "test",
-        **kwargs,
-    ):
+    def set_up_provider(self, recurring, express, **kwargs):
         with patch("requests.post") as mocked_post:
             data = MagicMock()
             data = '{"access_token": "test_access_token"}'
@@ -134,13 +129,14 @@ class TestPayuProvider(TestCase):
                 base_payu_url="http://mock.url/",
                 recurring_payments=recurring,
                 express_payments=express,
-                get_refund_description=get_refund_description,
                 **kwargs,
             )
 
     def test_redirect_to_recurring_payment(self):
         """Test that if the payment recurrence is set, the user is redirected to renew payment form"""
-        self.set_up_provider(True, True)
+        self.set_up_provider(
+            True, True, get_refund_description=lambda payment, amount: "test"
+        )
         form = self.provider.get_form(payment=self.payment)
         self.assertEqual(form.__class__.__name__, "RenewPaymentForm")
         self.assertEqual(form.action, "https://example.com/process_url/token")
@@ -148,7 +144,9 @@ class TestPayuProvider(TestCase):
         self.assertEqual(self.payment.captured_amount, Decimal("0"))
 
     def test_redirect_payu(self):
-        self.set_up_provider(True, False)
+        self.set_up_provider(
+            True, False, get_refund_description=lambda payment, amount: "test"
+        )
         with patch("requests.post") as mocked_post:
             post = MagicMock()
             post.text = '{"redirectUri": "test_redirect_uri", "status": {"statusCode": "SUCCESS"}, "orderId": 123}'
@@ -159,7 +157,9 @@ class TestPayuProvider(TestCase):
             self.assertEqual(context.exception.args[0], "test_redirect_uri")
 
     def test_redirect_payu_store_token(self):
-        self.set_up_provider(True, False)
+        self.set_up_provider(
+            True, False, get_refund_description=lambda payment, amount: "test"
+        )
         with patch("requests.post") as mocked_post:
             post = MagicMock()
             post.text = json.dumps(
@@ -191,7 +191,9 @@ class TestPayuProvider(TestCase):
             self.assertEqual(self.payment.automatic_renewal, True)
 
     def test_redirect_payu_unknown_status(self):
-        self.set_up_provider(True, False)
+        self.set_up_provider(
+            True, False, get_refund_description=lambda payment, amount: "test"
+        )
         with patch("requests.post") as mocked_post:
             post = MagicMock()
             post_text = {
@@ -244,7 +246,9 @@ class TestPayuProvider(TestCase):
             )
 
     def test_redirect_payu_bussiness_error(self):
-        self.set_up_provider(True, False)
+        self.set_up_provider(
+            True, False, get_refund_description=lambda payment, amount: "test"
+        )
         with patch("requests.post") as mocked_post:
             post = MagicMock()
             post_text = {
@@ -261,7 +265,9 @@ class TestPayuProvider(TestCase):
             self.assertEqual(self.payment.fraud_status, FraudStatus.REJECT)
 
     def test_redirect_payu_duplicate_order(self):
-        self.set_up_provider(True, False)
+        self.set_up_provider(
+            True, False, get_refund_description=lambda payment, amount: "test"
+        )
         self.payment.status = PaymentStatus.CONFIRMED
         self.payment.save()
         with patch("requests.post") as mocked_post:
@@ -282,7 +288,9 @@ class TestPayuProvider(TestCase):
             self.assertEqual(context.exception.args[0], "")
 
     def test_redirect_payu_no_status_code(self):
-        self.set_up_provider(True, False)
+        self.set_up_provider(
+            True, False, get_refund_description=lambda payment, amount: "test"
+        )
         with patch("requests.post") as mocked_post:
             post = MagicMock()
             post_text = {
@@ -334,7 +342,9 @@ class TestPayuProvider(TestCase):
             )
 
     def test_redirect_payu_unauthorized_status(self):
-        self.set_up_provider(True, False)
+        self.set_up_provider(
+            True, False, get_refund_description=lambda payment, amount: "test"
+        )
         with patch("requests.post") as mocked_post:
             post = MagicMock()
             post.text = json.dumps(
@@ -365,7 +375,9 @@ class TestPayuProvider(TestCase):
             )
 
     def test_get_access_token_trusted_merchant(self):
-        self.set_up_provider(True, False)
+        self.set_up_provider(
+            True, False, get_refund_description=lambda payment, amount: "test"
+        )
         with patch("requests.post") as mocked_post:
             post = MagicMock()
             post.text = json.dumps(
@@ -396,7 +408,9 @@ class TestPayuProvider(TestCase):
 
     def test_redirect_cvv_form(self):
         """Test redirection to CVV form if requested by PayU"""
-        self.set_up_provider(True, True)
+        self.set_up_provider(
+            True, True, get_refund_description=lambda payment, amount: "test"
+        )
         with patch("requests.post") as mocked_post:
             post = MagicMock()
             post.text = json.dumps(
@@ -455,7 +469,9 @@ class TestPayuProvider(TestCase):
 
     def test_showing_cvv_form(self):
         """Test redirection to CVV form if requested by PayU"""
-        self.set_up_provider(True, True)
+        self.set_up_provider(
+            True, True, get_refund_description=lambda payment, amount: "test"
+        )
         self.payment.extra_data = json.dumps({"cvv_url": "foo_url"})
         with patch("requests.post") as mocked_post:
             post = MagicMock()
@@ -483,7 +499,9 @@ class TestPayuProvider(TestCase):
 
     def test_redirect_3ds_form(self):
         """Test redirection to 3DS page if requested by PayU"""
-        self.set_up_provider(True, False)
+        self.set_up_provider(
+            True, False, get_refund_description=lambda payment, amount: "test"
+        )
         with patch("requests.post") as mocked_post:
             post = MagicMock()
             post.text = json.dumps(
@@ -537,7 +555,9 @@ class TestPayuProvider(TestCase):
 
     def test_payu_renew_form(self):
         """Test showing PayU card form"""
-        self.set_up_provider(True, True)
+        self.set_up_provider(
+            True, True, get_refund_description=lambda payment, amount: "test"
+        )
         transaction_id = "1234"
         data = MagicMock()
         data.return_value = {
@@ -557,7 +577,9 @@ class TestPayuProvider(TestCase):
 
     def test_payu_widget_form(self):
         """Test showing PayU card widget"""
-        self.set_up_provider(True, True)
+        self.set_up_provider(
+            True, True, get_refund_description=lambda payment, amount: "test"
+        )
         self.payment.token = None
         transaction_id = "1234"
         data = MagicMock()
@@ -582,7 +604,9 @@ class TestPayuProvider(TestCase):
 
     def test_process_notification(self):
         """Test processing PayU notification"""
-        self.set_up_provider(True, True)
+        self.set_up_provider(
+            True, True, get_refund_description=lambda payment, amount: "test"
+        )
         mocked_request = MagicMock()
         mocked_request.body = json.dumps({"order": {"status": "COMPLETED"}}).encode(
             "utf8"
@@ -603,7 +627,9 @@ class TestPayuProvider(TestCase):
 
     def test_process_notification_cancelled(self):
         """Test processing PayU cancelled notification"""
-        self.set_up_provider(True, True)
+        self.set_up_provider(
+            True, True, get_refund_description=lambda payment, amount: "test"
+        )
         self.payment.transaction_id = "123"
         self.payment.save()
         mocked_request = MagicMock()
@@ -639,7 +665,9 @@ class TestPayuProvider(TestCase):
         self.payment.change_status(PaymentStatus.CONFIRMED)
         self.payment.save()
 
-        self.set_up_provider(True, True)
+        self.set_up_provider(
+            True, True, get_refund_description=lambda payment, amount: "test"
+        )
         mocked_request = MagicMock()
         mocked_request.body = json.dumps(
             {
@@ -675,7 +703,9 @@ class TestPayuProvider(TestCase):
         self.payment.save()
         self.payment.refresh_from_db()
 
-        self.set_up_provider(True, True)
+        self.set_up_provider(
+            True, True, get_refund_description=lambda payment, amount: "test"
+        )
         mocked_request = MagicMock()
         mocked_request.body = json.dumps(
             {
@@ -706,7 +736,9 @@ class TestPayuProvider(TestCase):
 
     def test_process_notification_refund_not_finalized(self):
         """Test processing PayU partial refund notification"""
-        self.set_up_provider(True, True)
+        self.set_up_provider(
+            True, True, get_refund_description=lambda payment, amount: "test"
+        )
         mocked_request = MagicMock()
         mocked_request.body = json.dumps(
             {
@@ -729,7 +761,9 @@ class TestPayuProvider(TestCase):
 
     def test_process_notification_total_amount(self):
         """Test processing PayU notification if it captures correct amount"""
-        self.set_up_provider(True, True)
+        self.set_up_provider(
+            True, True, get_refund_description=lambda payment, amount: "test"
+        )
         mocked_request = MagicMock()
         mocked_request.body = json.dumps(
             {
@@ -756,7 +790,9 @@ class TestPayuProvider(TestCase):
 
     def test_process_notification_error(self):
         """Test processing PayU notification with wrong signature"""
-        self.set_up_provider(True, True)
+        self.set_up_provider(
+            True, True, get_refund_description=lambda payment, amount: "test"
+        )
         mocked_request = MagicMock()
         mocked_request.body = b"{}"
         mocked_request.META = {
@@ -774,7 +810,9 @@ class TestPayuProvider(TestCase):
 
     def test_process_notification_error_malformed_post(self):
         """Test processing PayU notification with malformed POST"""
-        self.set_up_provider(True, True)
+        self.set_up_provider(
+            True, True, get_refund_description=lambda payment, amount: "test"
+        )
         mocked_request = MagicMock()
         mocked_request.body = b"{}"
         mocked_request.META = {"CONTENT_TYPE": "application/json"}
@@ -784,7 +822,9 @@ class TestPayuProvider(TestCase):
 
     def test_process_first_renew(self):
         """Test processing first renew"""
-        self.set_up_provider(True, True)
+        self.set_up_provider(
+            True, True, get_refund_description=lambda payment, amount: "test"
+        )
         self.payment.token = None
         with patch("requests.post") as mocked_post:
             post = MagicMock()
@@ -843,7 +883,9 @@ class TestPayuProvider(TestCase):
 
     def test_process_renew(self):
         """Test processing renew"""
-        self.set_up_provider(True, True)
+        self.set_up_provider(
+            True, True, get_refund_description=lambda payment, amount: "test"
+        )
         with patch("requests.post") as mocked_post:
             post = MagicMock()
             post.text = json.dumps(
@@ -905,7 +947,9 @@ class TestPayuProvider(TestCase):
 
     def test_process_renew_card_on_file(self):
         """Test processing renew"""
-        self.set_up_provider(True, True)
+        self.set_up_provider(
+            True, True, get_refund_description=lambda payment, amount: "test"
+        )
         self.provider.card_on_file = True
         with patch("requests.post") as mocked_post:
             post = MagicMock()
@@ -968,7 +1012,9 @@ class TestPayuProvider(TestCase):
 
     def test_auto_complete_recurring(self):
         """Test processing renew. The function should return 'success' string, if nothing is required from user."""
-        self.set_up_provider(True, True)
+        self.set_up_provider(
+            True, True, get_refund_description=lambda payment, amount: "test"
+        )
         with patch("requests.post") as mocked_post:
             post = MagicMock()
             post.text = '{"status": {"statusCode": "SUCCESS"}, "orderId": 123}'
@@ -981,7 +1027,9 @@ class TestPayuProvider(TestCase):
 
     def test_auto_complete_recurring_cvv2(self):
         """Test processing renew when cvv2 form is required - it should return the payment processing URL"""
-        self.set_up_provider(True, True)
+        self.set_up_provider(
+            True, True, get_refund_description=lambda payment, amount: "test"
+        )
         with patch("requests.post") as mocked_post:
             post = MagicMock()
             post.text = json.dumps(
@@ -1000,7 +1048,9 @@ class TestPayuProvider(TestCase):
 
     def test_delete_card_token(self):
         """Test delete_card_token()"""
-        self.set_up_provider(True, True)
+        self.set_up_provider(
+            True, True, get_refund_description=lambda payment, amount: "test"
+        )
         self.payment.transaction_id = "1234"
         with patch("requests.delete") as mocked_post:
             post = MagicMock()
@@ -1019,7 +1069,9 @@ class TestPayuProvider(TestCase):
 
     def test_get_paymethod_tokens(self):
         """Test delete_card_token()"""
-        self.set_up_provider(True, True)
+        self.set_up_provider(
+            True, True, get_refund_description=lambda payment, amount: "test"
+        )
         self.payment.transaction_id = "1234"
         with patch("requests.get") as mocked_post:
             post = MagicMock()
@@ -1040,7 +1092,9 @@ class TestPayuProvider(TestCase):
 
     def test_reject_order(self):
         """Test processing renew"""
-        self.set_up_provider(True, True)
+        self.set_up_provider(
+            True, True, get_refund_description=lambda payment, amount: "test"
+        )
         self.payment.transaction_id = "1234"
         with patch("requests.delete") as mocked_post:
             post = MagicMock()
@@ -1060,7 +1114,9 @@ class TestPayuProvider(TestCase):
 
     def test_reject_order_error(self):
         """Test processing renew"""
-        self.set_up_provider(True, True)
+        self.set_up_provider(
+            True, True, get_refund_description=lambda payment, amount: "test"
+        )
         self.payment.transaction_id = "1234"
         with patch("requests.delete") as mocked_post:
             post = MagicMock()
@@ -1079,12 +1135,14 @@ class TestPayuProvider(TestCase):
         self.assertEqual(self.payment.status, PaymentStatus.WAITING)
 
     def test_refund(self):
-        self.set_up_provider(
-            True,
-            True,
-            get_refund_description=lambda payment, amount: f"desc {payment.transaction_id} {amount}",
-            get_refund_ext_id=lambda payment, amount: f"ext {payment.transaction_id} {amount}",
-        )
+        with warnings.catch_warnings(record=True) as caught_warnings:
+            warnings.simplefilter("always")
+            self.set_up_provider(
+                True,
+                True,
+                get_refund_description=lambda payment, amount: f"desc {payment.transaction_id} {amount}",
+                get_refund_ext_id=lambda payment, amount: f"ext {payment.transaction_id} {amount}",
+            )
         payment_extra_data_refund_response_previous = {
             "orderId": "1234",
             "refund": {
@@ -1152,14 +1210,17 @@ class TestPayuProvider(TestCase):
             payment_extra_data_refund_responses,
             [payment_extra_data_refund_response_previous, refund_request_response_body],
         )
+        self.assertFalse(caught_warnings)
 
     def test_refund_no_amount(self):
-        self.set_up_provider(
-            True,
-            True,
-            get_refund_description=lambda payment, amount: f"desc {payment.transaction_id} {amount}",
-            get_refund_ext_id=lambda payment, amount: f"ext {payment.transaction_id} {amount}",
-        )
+        with warnings.catch_warnings(record=True) as caught_warnings:
+            warnings.simplefilter("always")
+            self.set_up_provider(
+                True,
+                True,
+                get_refund_description=lambda payment, amount: f"desc {payment.transaction_id} {amount}",
+                get_refund_ext_id=lambda payment, amount: f"ext {payment.transaction_id} {amount}",
+            )
         self.payment.transaction_id = "1234"
         self.payment.captured_amount = self.payment.total
         self.payment.change_status(PaymentStatus.CONFIRMED)
@@ -1206,13 +1267,16 @@ class TestPayuProvider(TestCase):
         self.assertEqual(
             payment_extra_data_refund_responses, [refund_request_response_body]
         )
+        self.assertFalse(caught_warnings)
 
     def test_refund_no_get_refund_ext_id(self):
-        self.set_up_provider(
-            True,
-            True,
-            get_refund_description=lambda payment, amount: f"desc {payment.transaction_id} {amount}",
-        )
+        with warnings.catch_warnings(record=True) as caught_warnings:
+            warnings.simplefilter("always")
+            self.set_up_provider(
+                True,
+                True,
+                get_refund_description=lambda payment, amount: f"desc {payment.transaction_id} {amount}",
+            )
         self.payment.transaction_id = "1234"
         self.payment.captured_amount = self.payment.total
         self.payment.change_status(PaymentStatus.CONFIRMED)
@@ -1262,14 +1326,17 @@ class TestPayuProvider(TestCase):
         self.assertEqual(
             payment_extra_data_refund_responses, [refund_request_response_body]
         )
+        self.assertFalse(caught_warnings)
 
     def test_refund_no_ext_id(self):
-        self.set_up_provider(
-            True,
-            True,
-            get_refund_description=lambda payment, amount: f"desc {payment.transaction_id} {amount}",
-            get_refund_ext_id=lambda payment, amount: None,
-        )
+        with warnings.catch_warnings(record=True) as caught_warnings:
+            warnings.simplefilter("always")
+            self.set_up_provider(
+                True,
+                True,
+                get_refund_description=lambda payment, amount: f"desc {payment.transaction_id} {amount}",
+                get_refund_ext_id=lambda payment, amount: None,
+            )
         self.payment.transaction_id = "1234"
         self.payment.captured_amount = self.payment.total
         self.payment.change_status(PaymentStatus.CONFIRMED)
@@ -1315,14 +1382,17 @@ class TestPayuProvider(TestCase):
         self.assertEqual(
             payment_extra_data_refund_responses, [refund_request_response_body]
         )
+        self.assertFalse(caught_warnings)
 
     def test_refund_no_ext_id_twice(self):
-        self.set_up_provider(
-            True,
-            True,
-            get_refund_description=lambda payment, amount: f"desc {payment.transaction_id} {amount}",
-            get_refund_ext_id=lambda payment, amount: None,
-        )
+        with warnings.catch_warnings(record=True) as caught_warnings:
+            warnings.simplefilter("always")
+            self.set_up_provider(
+                True,
+                True,
+                get_refund_description=lambda payment, amount: f"desc {payment.transaction_id} {amount}",
+                get_refund_ext_id=lambda payment, amount: None,
+            )
         self.payment.transaction_id = "1234"
         self.payment.captured_amount = self.payment.total
         self.payment.change_status(PaymentStatus.CONFIRMED)
@@ -1371,14 +1441,17 @@ class TestPayuProvider(TestCase):
             payment_extra_data_refund_responses,
             [refund_request_response_body, refund_request_response_body],
         )
+        self.assertFalse(caught_warnings)
 
     def test_refund_finalized(self):
-        self.set_up_provider(
-            True,
-            True,
-            get_refund_description=lambda payment, amount: f"desc {payment.transaction_id} {amount}",
-            get_refund_ext_id=lambda payment, amount: f"ext {payment.transaction_id} {amount}",
-        )
+        with warnings.catch_warnings(record=True) as caught_warnings:
+            warnings.simplefilter("always")
+            self.set_up_provider(
+                True,
+                True,
+                get_refund_description=lambda payment, amount: f"desc {payment.transaction_id} {amount}",
+                get_refund_ext_id=lambda payment, amount: f"ext {payment.transaction_id} {amount}",
+            )
         self.payment.transaction_id = "1234"
         self.payment.captured_amount = self.payment.total
         self.payment.change_status(PaymentStatus.CONFIRMED)
@@ -1425,14 +1498,17 @@ class TestPayuProvider(TestCase):
         self.assertEqual(
             payment_extra_data_refund_responses, [refund_request_response_body]
         )
+        self.assertFalse(caught_warnings)
 
     def test_refund_canceled(self):
-        self.set_up_provider(
-            True,
-            True,
-            get_refund_description=lambda payment, amount: f"desc {payment.transaction_id} {amount}",
-            get_refund_ext_id=lambda payment, amount: f"ext {payment.transaction_id} {amount}",
-        )
+        with warnings.catch_warnings(record=True) as caught_warnings:
+            warnings.simplefilter("always")
+            self.set_up_provider(
+                True,
+                True,
+                get_refund_description=lambda payment, amount: f"desc {payment.transaction_id} {amount}",
+                get_refund_ext_id=lambda payment, amount: f"ext {payment.transaction_id} {amount}",
+            )
         self.payment.transaction_id = "1234"
         self.payment.captured_amount = self.payment.total
         self.payment.change_status(PaymentStatus.CONFIRMED)
@@ -1481,14 +1557,17 @@ class TestPayuProvider(TestCase):
         self.assertEqual(
             payment_extra_data_refund_responses, [refund_request_response_body]
         )
+        self.assertFalse(caught_warnings)
 
     def test_refund_error(self):
-        self.set_up_provider(
-            True,
-            True,
-            get_refund_description=lambda payment, amount: f"desc {payment.transaction_id} {amount}",
-            get_refund_ext_id=lambda payment, amount: f"ext {payment.transaction_id} {amount}",
-        )
+        with warnings.catch_warnings(record=True) as caught_warnings:
+            warnings.simplefilter("always")
+            self.set_up_provider(
+                True,
+                True,
+                get_refund_description=lambda payment, amount: f"desc {payment.transaction_id} {amount}",
+                get_refund_ext_id=lambda payment, amount: f"ext {payment.transaction_id} {amount}",
+            )
         self.payment.transaction_id = "1234"
         self.payment.captured_amount = self.payment.total
         self.payment.change_status(PaymentStatus.CONFIRMED)
@@ -1532,6 +1611,37 @@ class TestPayuProvider(TestCase):
         self.assertEqual(self.payment.status, PaymentStatus.CONFIRMED)
         self.assertEqual(
             payment_extra_data_refund_responses, [refund_request_response_body]
+        )
+        self.assertFalse(caught_warnings)
+
+    def test_refund_no_get_refund_description(self):
+        with warnings.catch_warnings(record=True) as caught_warnings:
+            warnings.simplefilter("always")
+            self.set_up_provider(
+                True,
+                True,
+                get_refund_ext_id=lambda payment, amount: f"ext {payment.transaction_id} {amount}",
+            )
+        self.payment.transaction_id = "1234"
+        self.payment.captured_amount = self.payment.total
+        self.payment.change_status(PaymentStatus.CONFIRMED)
+        self.payment.save()
+
+        with self.assertRaisesRegex(ValueError, r"^get_refund_description not set"):
+            self.provider.refund(self.payment, Decimal(110))
+
+        payment_extra_data_refund_responses = json.loads(self.payment.extra_data).get(
+            "refund_responses", []
+        )
+        self.assertEqual(self.payment.total, Decimal(220))
+        self.assertEqual(self.payment.captured_amount, Decimal(220))
+        self.assertEqual(self.payment.status, PaymentStatus.CONFIRMED)
+        self.assertFalse(payment_extra_data_refund_responses)
+        self.assertEqual(len(caught_warnings), 1)
+        self.assertTrue(issubclass(caught_warnings[0].category, DeprecationWarning))
+        self.assertEqual(
+            str(caught_warnings[0].message),
+            "A default value of get_refund_description is deprecated. Set it to a callable instead.",
         )
 
     @contextlib.contextmanager

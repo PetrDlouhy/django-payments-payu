@@ -2,6 +2,7 @@ import hashlib
 import json
 import logging
 import uuid
+import warnings
 from decimal import ROUND_HALF_UP, Decimal
 from urllib.parse import urljoin
 
@@ -185,7 +186,16 @@ class PayuProvider(BasicProvider):
         self.payu_shop_name = kwargs.pop("shop_name", "")
         self.grant_type = kwargs.pop("grant_type", "client_credentials")
         self.recurring_payments = kwargs.pop("recurring_payments", False)
-        self.get_refund_description = kwargs.pop("get_refund_description")
+        self.get_refund_description = kwargs.pop(
+            "get_refund_description",
+            # TODO: The default is deprecated. Remove in the next major release.
+            None,
+        )
+        if self.get_refund_description is None:
+            warnings.warn(
+                "A default value of get_refund_description is deprecated. Set it to a callable instead.",
+                DeprecationWarning,
+            )
         self.get_refund_ext_id = kwargs.pop(
             "get_refund_ext_id", lambda payment, amount: str(uuid.uuid4())
         )
@@ -604,6 +614,9 @@ class PayuProvider(BasicProvider):
             )
 
     def refund(self, payment, amount=None):
+        if self.get_refund_description is None:
+            raise ValueError("get_refund_description not set")
+
         request_url = self._get_payu_api_order_url(payment.transaction_id) + "/refunds"
 
         request_data = {
