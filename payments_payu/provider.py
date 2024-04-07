@@ -657,7 +657,7 @@ class PayuProvider(BasicProvider):
             response_status = dict(response["status"])
             response_status_code = response_status["statusCode"]
         except Exception:
-            raise ValueError(
+            raise PayuApiError(
                 f"invalid response to refund {refund_id or '???'} of payment {payment.id}: {response}"
             )
         if response_status_code != "SUCCESS":
@@ -669,7 +669,7 @@ class PayuProvider(BasicProvider):
                 f"statusDesc={response_status.get('statusDesc', '???')}"
             )
         if refund_id is None:
-            raise ValueError(
+            raise PayuApiError(
                 f"invalid response to refund of payment {payment.id}: {response}"
             )
 
@@ -679,7 +679,7 @@ class PayuProvider(BasicProvider):
             refund_currency = refund["currencyCode"]
             refund_amount = dequantize_price(refund["amount"], refund_currency)
         except Exception:
-            raise ValueError(
+            raise PayuApiError(
                 f"invalid response to refund {refund_id} of payment {payment.id}: {response}"
             )
         if refund_order_id != payment.transaction_id:
@@ -690,7 +690,7 @@ class PayuProvider(BasicProvider):
         if refund_status == "CANCELED":
             raise ValueError(f"refund {refund_id} of payment {payment.id} canceled")
         elif refund_status not in {"PENDING", "FINALIZED"}:
-            raise ValueError(
+            raise PayuApiError(
                 f"invalid status of refund {refund_id} of payment {payment.id}"
             )
         if refund_currency != payment.currency:

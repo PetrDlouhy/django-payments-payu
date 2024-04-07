@@ -7,6 +7,7 @@ Unreleased
 **********
 * fix backward compatibility by making PayuProvider's get_refund_description argument optional
 * make PayuProvider.refund fail if get_refund_description is not provided
+* make PayuProvider.refund raise PayuApiError if an unexpected response is received
 * deprecate the default value of get_refund_description; set it to a callable instead
 
 1.3.1 (2024-03-19)
