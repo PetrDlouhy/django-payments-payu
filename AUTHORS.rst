@@ -10,4 +10,4 @@ Development Lead
 Contributors
 ------------
 
-* Radek Holý
+* BlenderKit <info@blenderkit.com>

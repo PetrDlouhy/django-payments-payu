@@ -3,15 +3,24 @@
 History
 -------
 
+Unreleased
+**********
+* fix backward compatibility by making PayuProvider's get_refund_description argument optional
+* make PayuProvider.refund fail if get_refund_description is not provided
+* make PayuProvider.refund raise PayuApiError if an unexpected response is received
+* deprecate the default value of get_refund_description; set it to a callable instead
+
 1.3.1 (2024-03-19)
 ******************
 * Fix description on PyPI
 
 1.3.0 (2024-03-19)
 ******************
+* add get_refund_description and get_refund_ext_id arguments to PayuProvider
 * add PayuProvider.refund
 * update payment.captured_amount only when order is completed
 * subtract refunds from payment.captured_amount rather than from payment.total
+* rename PayuProvider.payu_api_order_url to payu_api_orders_url
 * tests for Django 2.2-5.0 Python 3.7-3.12
 
 1.2.4 (2022-03-17)
