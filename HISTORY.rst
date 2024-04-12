@@ -3,7 +3,7 @@
 History
 -------
 
-Unreleased
+1.4.0 (2024-04-12)
 **********
 * fix backward compatibility by making PayuProvider's get_refund_description argument optional
 * add `renewal_triggered_by` parameter to `payment.set_renew_token`
