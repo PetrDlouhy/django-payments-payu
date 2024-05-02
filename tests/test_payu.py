@@ -1207,7 +1207,7 @@ class TestPayuProvider(TestCase):
             "refund_responses"
         ]
         self.assertEqual(refund_request_mock.call_count, 1)
-        self.assertEqual(amount, Decimal(110))
+        self.assertEqual(amount, Decimal(0))
         self.assertEqual(self.payment.total, Decimal(220))
         self.assertEqual(self.payment.captured_amount, Decimal(210))
         self.assertEqual(self.payment.status, PaymentStatus.CONFIRMED)
@@ -1265,7 +1265,7 @@ class TestPayuProvider(TestCase):
             "refund_responses"
         ]
         self.assertEqual(refund_request_mock.call_count, 1)
-        self.assertEqual(amount, Decimal(220))
+        self.assertEqual(amount, Decimal(0))
         self.assertEqual(self.payment.total, Decimal(220))
         self.assertEqual(self.payment.captured_amount, Decimal(220))
         self.assertEqual(self.payment.status, PaymentStatus.CONFIRMED)
@@ -1324,7 +1324,7 @@ class TestPayuProvider(TestCase):
             "refund_responses"
         ]
         self.assertEqual(refund_request_mock.call_count, 1)
-        self.assertEqual(amount, Decimal(110))
+        self.assertEqual(amount, Decimal(0))
         self.assertEqual(self.payment.total, Decimal(220))
         self.assertEqual(self.payment.captured_amount, Decimal(220))
         self.assertEqual(self.payment.status, PaymentStatus.CONFIRMED)
@@ -1380,7 +1380,7 @@ class TestPayuProvider(TestCase):
             "refund_responses"
         ]
         self.assertEqual(refund_request_mock.call_count, 1)
-        self.assertEqual(amount, Decimal(110))
+        self.assertEqual(amount, Decimal(0))
         self.assertEqual(self.payment.total, Decimal(220))
         self.assertEqual(self.payment.captured_amount, Decimal(220))
         self.assertEqual(self.payment.status, PaymentStatus.CONFIRMED)
@@ -1438,7 +1438,7 @@ class TestPayuProvider(TestCase):
         ]
         self.assertEqual(refund_request_mock.call_count, 2)
         self.assertEqual(amount2, amount1)
-        self.assertEqual(amount2, Decimal(200))
+        self.assertEqual(amount2, Decimal(0))
         self.assertEqual(self.payment.total, Decimal(220))
         self.assertEqual(self.payment.captured_amount, Decimal(220))
         self.assertEqual(self.payment.status, PaymentStatus.CONFIRMED)
@@ -1448,7 +1448,7 @@ class TestPayuProvider(TestCase):
         )
         self.assertFalse(caught_warnings)
 
-    def test_refund_finalized(self):
+    def test_refund_pending(self):
         with warnings.catch_warnings(record=True) as caught_warnings:
             warnings.simplefilter("always")
             self.set_up_provider(
@@ -1470,7 +1470,7 @@ class TestPayuProvider(TestCase):
                 "currencyCode": "USD",
                 "description": "desc 1234 110",
                 "creationDateTime": "2020-07-02T09:19:03.896+02:00",
-                "status": "FINALIZED",
+                "status": "PENDING",
                 "statusDateTime": "2020-07-02T09:19:04.013+02:00",
             },
             "status": {
@@ -1496,7 +1496,7 @@ class TestPayuProvider(TestCase):
             "refund_responses"
         ]
         self.assertEqual(refund_request_mock.call_count, 1)
-        self.assertEqual(amount, Decimal(110))
+        self.assertEqual(amount, Decimal(0))
         self.assertEqual(self.payment.total, Decimal(220))
         self.assertEqual(self.payment.captured_amount, Decimal(220))
         self.assertEqual(self.payment.status, PaymentStatus.CONFIRMED)
