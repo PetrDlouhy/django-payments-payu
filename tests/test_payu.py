@@ -3,6 +3,7 @@ from __future__ import unicode_literals
 import contextlib
 import json
 import warnings
+from copy import deepcopy
 from decimal import Decimal
 from unittest import TestCase
 
@@ -33,8 +34,59 @@ class JSONEquals(str):
         return self.json == json.loads(other)
 
 
+class PaymentQuerySet(Mock):
+    __payments = {}
+
+    def create(self, **kwargs):
+        if kwargs:
+            raise NotImplementedError(f"arguments not supported yet: {kwargs}")
+        id_ = max(self.__payments) + 1 if self.__payments else 1
+        self.__payments[id_] = {}
+        payment = Payment()
+        payment.id = id_
+        payment.save()
+        return payment
+
+    def get(self, *args, **kwargs):
+        if args or kwargs:
+            return self.filter(*args, **kwargs).get()
+        payment = Payment()
+        (payment_fields,) = self.__payments.values()
+        for payment_field_name, payment_field_value in payment_fields.items():
+            setattr(payment, payment_field_name, deepcopy(payment_field_value))
+        return payment
+
+    def filter(self, *args, pk=None, **kwargs):
+        if args or kwargs:
+            raise NotImplementedError(f"arguments not supported yet: {args}, {kwargs}")
+        if pk is not None:
+            return PaymentQuerySet(
+                {pk_: payment for pk_, payment in self.__payments.items() if pk_ == pk}
+            )
+        return self
+
+    def update(self, **kwargs):
+        for payment in self.__payments.values():
+            for field_name, field_value in kwargs.items():
+                if not any(
+                    field.name == field_name
+                    for field in Payment._meta.get_fields(
+                        include_parents=True, include_hidden=True
+                    )
+                ):
+                    raise NotImplementedError(
+                        f"updating unknown field not supported yet: {field_name}"
+                    )
+                payment[field_name] = deepcopy(field_value)
+
+    def delete(self):
+        self.__payments.clear()
+
+
 class Payment(Mock):
     UNSET = object()
+
+    objects = PaymentQuerySet()
 
     id = 1
     description = "payment"
@@ -64,13 +116,20 @@ class Payment(Mock):
         }
     )
 
-    def change_fraud_status(self, status, message=""):
+    @property
+    def pk(self):
+        return self.id
+
+    def change_fraud_status(self, status, message="", commit=True):
         self.fraud_status = status
         self.message = message
+        if commit:
+            self.save()
 
     def change_status(self, status, message=""):
         self.status = status
         self.message = message
+        self.save(update_fields=["status", "message"])
 
     def get_failure_url(self):
         return "http://cancel.com"
@@ -110,12 +169,65 @@ class Payment(Mock):
         self.automatic_renewal = automatic_renewal
         self.renewal_triggered_by = renewal_triggered_by
 
+    def save(self, *args, update_fields=None, **kwargs):
+        if args or kwargs:
+            raise NotImplementedError(f"arguments not supported yet: {args}, {kwargs}")
+        if update_fields is None:
+            update_fields = {
+                field.name
+                for field in self._meta.get_fields(
+                    include_parents=True, include_hidden=True
+                )
+            }
+        Payment.objects.filter(pk=self.pk).update(
+            **{field: getattr(self, field) for field in update_fields}
+        )
+
+    def refresh_from_db(self, *args, **kwargs):
+        if args or kwargs:
+            raise NotImplementedError(f"arguments not supported yet: {args}, {kwargs}")
+        payment_from_db = Payment.objects.get(pk=self.pk)
+        for field in self._meta.get_fields(include_parents=True, include_hidden=True):
+            field_value_from_db = getattr(payment_from_db, field.name)
+            setattr(self, field.name, field_value_from_db)
+
+    class Meta(Mock):
+        def get_fields(self, include_parents=True, include_hidden=False):
+            fields = []
+            for field_name in {
+                "id",
+                "description",
+                "currency",
+                "delivery",
+                "status",
+                "fraud_status",
+                "tax",
+                "total",
+                "billing_first_name",
+                "billing_last_name",
+                "billing_email",
+                "captured_amount",
+                "variant",
+                "transaction_id",
+                "message",
+                "customer_ip_address",
+                "token",
+                "extra_data",
+            }:
+                field = Mock()
+                field.name = field_name
+                fields.append(field)
+            return tuple(fields)
+
+    _meta = Meta()
+
 
 class TestPayuProvider(TestCase):
     urls = "myapp.test_urls"
 
     def setUp(self):
-        self.payment = Payment()
+        Payment.objects.delete()
+        self.payment = Payment.objects.create()
 
     def set_up_provider(self, recurring, express, **kwargs):
         with patch("requests.post") as mocked_post:
@@ -629,6 +741,9 @@ class TestPayuProvider(TestCase):
         self.assertEqual(ret_val.content, b"ok")
         self.assertEqual(self.payment.status, PaymentStatus.CONFIRMED)
         self.assertEqual(self.payment.captured_amount, Decimal("0"))
+        self.payment.refresh_from_db()
+        self.assertEqual(self.payment.status, PaymentStatus.CONFIRMED)
+        self.assertEqual(self.payment.captured_amount, Decimal("0"))
 
     def test_process_notification_cancelled(self):
         """Test processing PayU cancelled notification"""
@@ -661,6 +776,9 @@ class TestPayuProvider(TestCase):
         self.assertEqual(ret_val.__class__.__name__, "HttpResponse")
         self.assertEqual(ret_val.status_code, 200)
         self.assertEqual(ret_val.content, b"ok")
+        self.assertEqual(self.payment.status, PaymentStatus.REJECTED)
+        self.assertEqual(self.payment.captured_amount, Decimal("0"))
+        self.payment.refresh_from_db()
         self.assertEqual(self.payment.status, PaymentStatus.REJECTED)
         self.assertEqual(self.payment.captured_amount, Decimal("0"))
 
@@ -699,6 +817,10 @@ class TestPayuProvider(TestCase):
         self.assertEqual(self.payment.status, PaymentStatus.REFUNDED)
         self.assertEqual(self.payment.total, Decimal(220))
         self.assertEqual(self.payment.captured_amount, Decimal(220))
+        self.payment.refresh_from_db()
+        self.assertEqual(self.payment.status, PaymentStatus.REFUNDED)
+        self.assertEqual(self.payment.total, Decimal(220))
+        self.assertEqual(self.payment.captured_amount, Decimal(220))
 
     def test_process_notification_partial_refund(self):
         """Test processing PayU partial refund notification"""
@@ -734,6 +856,9 @@ class TestPayuProvider(TestCase):
         self.assertEqual(ret_val.__class__.__name__, "HttpResponse")
         self.assertEqual(ret_val.status_code, 200)
         self.assertEqual(ret_val.content, b"ok")
+        self.assertEqual(self.payment.total, Decimal(220))
+        self.assertEqual(self.payment.captured_amount, Decimal("110"))
+        self.assertEqual(self.payment.status, PaymentStatus.CONFIRMED)
         self.payment.refresh_from_db()
         self.assertEqual(self.payment.total, Decimal(220))
         self.assertEqual(self.payment.captured_amount, Decimal("110"))
@@ -792,6 +917,9 @@ class TestPayuProvider(TestCase):
         self.assertEqual(ret_val.content, b"ok")
         self.assertEqual(self.payment.status, PaymentStatus.CONFIRMED)
         self.assertEqual(self.payment.captured_amount, Decimal("2"))
+        self.payment.refresh_from_db()
+        self.assertEqual(self.payment.status, PaymentStatus.CONFIRMED)
+        self.assertEqual(self.payment.captured_amount, Decimal("2"))
 
     def test_process_notification_error(self):
         """Test processing PayU notification with wrong signature"""
@@ -810,6 +938,9 @@ class TestPayuProvider(TestCase):
         self.assertEqual(ret_val.__class__.__name__, "HttpResponse")
         self.assertEqual(ret_val.status_code, 500)
         self.assertEqual(ret_val.content, b"not ok")
+        self.assertEqual(self.payment.status, PaymentStatus.WAITING)
+        self.assertEqual(self.payment.captured_amount, Decimal("0"))
+        self.payment.refresh_from_db()
         self.assertEqual(self.payment.status, PaymentStatus.WAITING)
         self.assertEqual(self.payment.captured_amount, Decimal("0"))
 
@@ -885,6 +1016,9 @@ class TestPayuProvider(TestCase):
             )
         self.assertEqual(self.payment.status, PaymentStatus.WAITING)
         self.assertEqual(self.payment.captured_amount, Decimal("0"))
+        self.payment.refresh_from_db()
+        self.assertEqual(self.payment.status, PaymentStatus.WAITING)
+        self.assertEqual(self.payment.captured_amount, Decimal("0"))
 
     def test_process_renew(self):
         """Test processing renew"""
@@ -947,6 +1081,9 @@ class TestPayuProvider(TestCase):
                     "Content-Type": "application/json",
                 },
             )
+        self.assertEqual(self.payment.status, PaymentStatus.WAITING)
+        self.assertEqual(self.payment.captured_amount, Decimal("0"))
+        self.payment.refresh_from_db()
         self.assertEqual(self.payment.status, PaymentStatus.WAITING)
         self.assertEqual(self.payment.captured_amount, Decimal("0"))
 
@@ -1014,6 +1151,9 @@ class TestPayuProvider(TestCase):
             )
         self.assertEqual(self.payment.status, PaymentStatus.WAITING)
         self.assertEqual(self.payment.captured_amount, Decimal("0"))
+        self.payment.refresh_from_db()
+        self.assertEqual(self.payment.status, PaymentStatus.WAITING)
+        self.assertEqual(self.payment.captured_amount, Decimal("0"))
 
     def test_auto_complete_recurring(self):
         """Test processing renew. The function should return 'success' string, if nothing is required from user."""
@@ -1027,6 +1167,9 @@ class TestPayuProvider(TestCase):
             mocked_post.return_value = post
             redirect = self.provider.auto_complete_recurring(self.payment)
             self.assertEqual(redirect, "success")
+        self.assertEqual(self.payment.status, PaymentStatus.WAITING)
+        self.assertEqual(self.payment.captured_amount, Decimal("0"))
+        self.payment.refresh_from_db()
         self.assertEqual(self.payment.status, PaymentStatus.WAITING)
         self.assertEqual(self.payment.captured_amount, Decimal("0"))
 
@@ -1048,6 +1191,9 @@ class TestPayuProvider(TestCase):
             mocked_post.return_value = post
             redirect = self.provider.auto_complete_recurring(self.payment)
             self.assertEqual(redirect, "https://example.com/payment/token")
+        self.assertEqual(self.payment.status, PaymentStatus.WAITING)
+        self.assertEqual(self.payment.captured_amount, Decimal("0"))
+        self.payment.refresh_from_db()
         self.assertEqual(self.payment.status, PaymentStatus.WAITING)
         self.assertEqual(self.payment.captured_amount, Decimal("0"))
 
@@ -1116,6 +1262,8 @@ class TestPayuProvider(TestCase):
                 },
             )
         self.assertEqual(self.payment.status, PaymentStatus.REJECTED)
+        self.payment.refresh_from_db()
+        self.assertEqual(self.payment.status, PaymentStatus.REJECTED)
 
     def test_reject_order_error(self):
         """Test processing renew"""
@@ -1137,6 +1285,8 @@ class TestPayuProvider(TestCase):
                     "Content-Type": "application/json",
                 },
             )
+        self.assertEqual(self.payment.status, PaymentStatus.WAITING)
+        self.payment.refresh_from_db()
         self.assertEqual(self.payment.status, PaymentStatus.WAITING)
 
     def test_refund(self):
@@ -1203,16 +1353,21 @@ class TestPayuProvider(TestCase):
         with refund_request_patch as refund_request_mock:
             amount = self.provider.refund(self.payment, Decimal(110))
 
-        payment_extra_data_refund_responses = json.loads(self.payment.extra_data)[
-            "refund_responses"
-        ]
         self.assertEqual(refund_request_mock.call_count, 1)
         self.assertEqual(amount, Decimal(110))
         self.assertEqual(self.payment.total, Decimal(220))
         self.assertEqual(self.payment.captured_amount, Decimal(210))
         self.assertEqual(self.payment.status, PaymentStatus.CONFIRMED)
         self.assertEqual(
-            payment_extra_data_refund_responses,
+            json.loads(self.payment.extra_data)["refund_responses"],
+            [payment_extra_data_refund_response_previous, refund_request_response_body],
+        )
+        self.payment.refresh_from_db()
+        self.assertEqual(self.payment.total, Decimal(220))
+        self.assertEqual(self.payment.captured_amount, Decimal(210))
+        self.assertEqual(self.payment.status, PaymentStatus.CONFIRMED)
+        self.assertEqual(
+            json.loads(self.payment.extra_data)["refund_responses"],
             [payment_extra_data_refund_response_previous, refund_request_response_body],
         )
         self.assertFalse(caught_warnings)
@@ -1261,16 +1416,22 @@ class TestPayuProvider(TestCase):
         with refund_request_patch as refund_request_mock:
             amount = self.provider.refund(self.payment)
 
-        payment_extra_data_refund_responses = json.loads(self.payment.extra_data)[
-            "refund_responses"
-        ]
         self.assertEqual(refund_request_mock.call_count, 1)
         self.assertEqual(amount, Decimal(220))
         self.assertEqual(self.payment.total, Decimal(220))
         self.assertEqual(self.payment.captured_amount, Decimal(220))
         self.assertEqual(self.payment.status, PaymentStatus.CONFIRMED)
         self.assertEqual(
-            payment_extra_data_refund_responses, [refund_request_response_body]
+            json.loads(self.payment.extra_data)["refund_responses"],
+            [refund_request_response_body],
+        )
+        self.payment.refresh_from_db()
+        self.assertEqual(self.payment.total, Decimal(220))
+        self.assertEqual(self.payment.captured_amount, Decimal(220))
+        self.assertEqual(self.payment.status, PaymentStatus.CONFIRMED)
+        self.assertEqual(
+            json.loads(self.payment.extra_data)["refund_responses"],
+            [refund_request_response_body],
         )
         self.assertFalse(caught_warnings)
 
@@ -1320,16 +1481,22 @@ class TestPayuProvider(TestCase):
             ):
                 amount = self.provider.refund(self.payment, Decimal(110))
 
-        payment_extra_data_refund_responses = json.loads(self.payment.extra_data)[
-            "refund_responses"
-        ]
         self.assertEqual(refund_request_mock.call_count, 1)
         self.assertEqual(amount, Decimal(110))
         self.assertEqual(self.payment.total, Decimal(220))
         self.assertEqual(self.payment.captured_amount, Decimal(220))
         self.assertEqual(self.payment.status, PaymentStatus.CONFIRMED)
         self.assertEqual(
-            payment_extra_data_refund_responses, [refund_request_response_body]
+            json.loads(self.payment.extra_data)["refund_responses"],
+            [refund_request_response_body],
+        )
+        self.payment.refresh_from_db()
+        self.assertEqual(self.payment.total, Decimal(220))
+        self.assertEqual(self.payment.captured_amount, Decimal(220))
+        self.assertEqual(self.payment.status, PaymentStatus.CONFIRMED)
+        self.assertEqual(
+            json.loads(self.payment.extra_data)["refund_responses"],
+            [refund_request_response_body],
         )
         self.assertFalse(caught_warnings)
 
@@ -1376,16 +1543,22 @@ class TestPayuProvider(TestCase):
         with refund_request_patch as refund_request_mock:
             amount = self.provider.refund(self.payment, Decimal(110))
 
-        payment_extra_data_refund_responses = json.loads(self.payment.extra_data)[
-            "refund_responses"
-        ]
         self.assertEqual(refund_request_mock.call_count, 1)
         self.assertEqual(amount, Decimal(110))
         self.assertEqual(self.payment.total, Decimal(220))
         self.assertEqual(self.payment.captured_amount, Decimal(220))
         self.assertEqual(self.payment.status, PaymentStatus.CONFIRMED)
         self.assertEqual(
-            payment_extra_data_refund_responses, [refund_request_response_body]
+            json.loads(self.payment.extra_data)["refund_responses"],
+            [refund_request_response_body],
+        )
+        self.payment.refresh_from_db()
+        self.assertEqual(self.payment.total, Decimal(220))
+        self.assertEqual(self.payment.captured_amount, Decimal(220))
+        self.assertEqual(self.payment.status, PaymentStatus.CONFIRMED)
+        self.assertEqual(
+            json.loads(self.payment.extra_data)["refund_responses"],
+            [refund_request_response_body],
         )
         self.assertFalse(caught_warnings)
 
@@ -1433,9 +1606,6 @@ class TestPayuProvider(TestCase):
             amount1 = self.provider.refund(self.payment, Decimal(200))
             amount2 = self.provider.refund(self.payment, Decimal(200))
 
-        payment_extra_data_refund_responses = json.loads(self.payment.extra_data)[
-            "refund_responses"
-        ]
         self.assertEqual(refund_request_mock.call_count, 2)
         self.assertEqual(amount2, amount1)
         self.assertEqual(amount2, Decimal(200))
@@ -1443,7 +1613,15 @@ class TestPayuProvider(TestCase):
         self.assertEqual(self.payment.captured_amount, Decimal(220))
         self.assertEqual(self.payment.status, PaymentStatus.CONFIRMED)
         self.assertEqual(
-            payment_extra_data_refund_responses,
+            json.loads(self.payment.extra_data)["refund_responses"],
+            [refund_request_response_body, refund_request_response_body],
+        )
+        self.payment.refresh_from_db()
+        self.assertEqual(self.payment.total, Decimal(220))
+        self.assertEqual(self.payment.captured_amount, Decimal(220))
+        self.assertEqual(self.payment.status, PaymentStatus.CONFIRMED)
+        self.assertEqual(
+            json.loads(self.payment.extra_data)["refund_responses"],
             [refund_request_response_body, refund_request_response_body],
         )
         self.assertFalse(caught_warnings)
@@ -1492,16 +1670,22 @@ class TestPayuProvider(TestCase):
         with refund_request_patch as refund_request_mock:
             amount = self.provider.refund(self.payment, Decimal(110))
 
-        payment_extra_data_refund_responses = json.loads(self.payment.extra_data)[
-            "refund_responses"
-        ]
         self.assertEqual(refund_request_mock.call_count, 1)
         self.assertEqual(amount, Decimal(110))
         self.assertEqual(self.payment.total, Decimal(220))
         self.assertEqual(self.payment.captured_amount, Decimal(220))
         self.assertEqual(self.payment.status, PaymentStatus.CONFIRMED)
         self.assertEqual(
-            payment_extra_data_refund_responses, [refund_request_response_body]
+            json.loads(self.payment.extra_data)["refund_responses"],
+            [refund_request_response_body],
+        )
+        self.payment.refresh_from_db()
+        self.assertEqual(self.payment.total, Decimal(220))
+        self.assertEqual(self.payment.captured_amount, Decimal(220))
+        self.assertEqual(self.payment.status, PaymentStatus.CONFIRMED)
+        self.assertEqual(
+            json.loads(self.payment.extra_data)["refund_responses"],
+            [refund_request_response_body],
         )
         self.assertFalse(caught_warnings)
 
@@ -1552,15 +1736,21 @@ class TestPayuProvider(TestCase):
             with refund_request_patch as refund_request_mock:
                 self.provider.refund(self.payment, Decimal(110))
 
-        payment_extra_data_refund_responses = json.loads(self.payment.extra_data)[
-            "refund_responses"
-        ]
         self.assertEqual(refund_request_mock.call_count, 1)
         self.assertEqual(self.payment.total, Decimal(220))
         self.assertEqual(self.payment.captured_amount, Decimal(220))
         self.assertEqual(self.payment.status, PaymentStatus.CONFIRMED)
         self.assertEqual(
-            payment_extra_data_refund_responses, [refund_request_response_body]
+            json.loads(self.payment.extra_data)["refund_responses"],
+            [refund_request_response_body],
+        )
+        self.payment.refresh_from_db()
+        self.assertEqual(self.payment.total, Decimal(220))
+        self.assertEqual(self.payment.captured_amount, Decimal(220))
+        self.assertEqual(self.payment.status, PaymentStatus.CONFIRMED)
+        self.assertEqual(
+            json.loads(self.payment.extra_data)["refund_responses"],
+            [refund_request_response_body],
         )
         self.assertFalse(caught_warnings)
 
@@ -1607,15 +1797,21 @@ class TestPayuProvider(TestCase):
             with refund_request_patch as refund_request_mock:
                 self.provider.refund(self.payment, Decimal(110))
 
-        payment_extra_data_refund_responses = json.loads(self.payment.extra_data)[
-            "refund_responses"
-        ]
         self.assertEqual(refund_request_mock.call_count, 1)
         self.assertEqual(self.payment.total, Decimal(220))
         self.assertEqual(self.payment.captured_amount, Decimal(220))
         self.assertEqual(self.payment.status, PaymentStatus.CONFIRMED)
         self.assertEqual(
-            payment_extra_data_refund_responses, [refund_request_response_body]
+            json.loads(self.payment.extra_data)["refund_responses"],
+            [refund_request_response_body],
+        )
+        self.payment.refresh_from_db()
+        self.assertEqual(self.payment.total, Decimal(220))
+        self.assertEqual(self.payment.captured_amount, Decimal(220))
+        self.assertEqual(self.payment.status, PaymentStatus.CONFIRMED)
+        self.assertEqual(
+            json.loads(self.payment.extra_data)["refund_responses"],
+            [refund_request_response_body],
         )
         self.assertFalse(caught_warnings)
 
@@ -1635,13 +1831,19 @@ class TestPayuProvider(TestCase):
         with self.assertRaisesRegex(ValueError, r"^get_refund_description not set"):
             self.provider.refund(self.payment, Decimal(110))
 
-        payment_extra_data_refund_responses = json.loads(self.payment.extra_data).get(
-            "refund_responses", []
-        )
         self.assertEqual(self.payment.total, Decimal(220))
         self.assertEqual(self.payment.captured_amount, Decimal(220))
         self.assertEqual(self.payment.status, PaymentStatus.CONFIRMED)
-        self.assertFalse(payment_extra_data_refund_responses)
+        self.assertFalse(
+            json.loads(self.payment.extra_data).get("refund_responses", [])
+        )
+        self.payment.refresh_from_db()
+        self.assertEqual(self.payment.total, Decimal(220))
+        self.assertEqual(self.payment.captured_amount, Decimal(220))
+        self.assertEqual(self.payment.status, PaymentStatus.CONFIRMED)
+        self.assertFalse(
+            json.loads(self.payment.extra_data).get("refund_responses", [])
+        )
         self.assertEqual(len(caught_warnings), 1)
         self.assertTrue(issubclass(caught_warnings[0].category, DeprecationWarning))
         self.assertEqual(

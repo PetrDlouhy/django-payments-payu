@@ -3,6 +3,10 @@
 History
 -------
 
+Unreleased
+**********
+* fix captured_amount not being saved when processing data
+
 1.4.0 (2024-04-12)
 ******************
 * fix backward compatibility by making PayuProvider's get_refund_description argument optional
