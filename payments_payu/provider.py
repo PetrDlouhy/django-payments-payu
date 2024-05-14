@@ -598,7 +598,7 @@ class PayuProvider(BasicProvider):
                             data["order"]["totalAmount"],
                             data["order"]["currencyCode"],
                         )
-                        payment.objects.filter(pk=payment.pk).update(
+                        type(payment).objects.filter(pk=payment.pk).update(
                             captured_amount=payment.captured_amount
                         )
                     payment.change_status(status)

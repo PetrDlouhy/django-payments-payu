@@ -3,6 +3,9 @@
 History
 -------
 
+Unreleased
+**********
+* fix "AttributeError: Manager isn't accessible via Payment instances" introduced in 1.4.1
 
 1.4.2 (2024-05-14)
 ******************
