@@ -3,8 +3,8 @@
 History
 -------
 
-Unreleased
-**********
+1.4.1 (2024-05-14)
+******************
 * fix captured_amount not being saved when processing data
 
 1.4.0 (2024-04-12)
