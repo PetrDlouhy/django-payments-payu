@@ -598,6 +598,9 @@ class PayuProvider(BasicProvider):
                             data["order"]["totalAmount"],
                             data["order"]["currencyCode"],
                         )
+                        payment.objects.filter(pk=payment.pk).update(
+                            captured_amount=payment.captured_amount
+                        )
                     payment.change_status(status)
                     return HttpResponse("ok", status=200)
         return HttpResponse("not ok", status=500)
