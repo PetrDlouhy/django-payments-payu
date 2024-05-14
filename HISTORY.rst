@@ -3,6 +3,12 @@
 History
 -------
 
+
+1.4.2 (2024-05-14)
+******************
+* fix multiple deduction of the refund amount from `payment.captured_amount`
+* change statuses of payments refunded with an amount greater than `payment.captured_amount` to `REFUNDED` instead of just deducing `captured_amount`
+
 1.4.1 (2024-05-14)
 ******************
 * fix captured_amount not being saved when processing data

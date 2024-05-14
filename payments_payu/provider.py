@@ -564,7 +564,16 @@ class PayuProvider(BasicProvider):
                     print(refunded_price, payment.total)
                     if data["refund"]["status"] == "FINALIZED":
                         payment.message += data["refund"]["reasonDescription"]
-                        if refunded_price == payment.captured_amount:
+                        if refunded_price >= payment.captured_amount:
+                            if refunded_price > payment.captured_amount:
+                                logger.error(
+                                    "refund %s of payment %s has amount greater than the payment's captured_amount: "
+                                    "%f > %f",
+                                    data["refund"].get("refundId", "???"),
+                                    payment.id,
+                                    refunded_price,
+                                    payment.captured_amount,
+                                )
                             payment.change_status(PaymentStatus.REFUNDED)
                         else:
                             payment.captured_amount -= refunded_price
@@ -692,7 +701,11 @@ class PayuProvider(BasicProvider):
             )
         if refund_status == "CANCELED":
             raise ValueError(f"refund {refund_id} of payment {payment.id} canceled")
-        elif refund_status not in {"PENDING", "FINALIZED"}:
+        elif refund_status == "FINALIZED":
+            raise NotImplementedError(
+                f"refund {refund_id} of payment {payment.id} being FINALIZED already is not supported yet"
+            )
+        elif refund_status not in {"PENDING"}:
             raise PayuApiError(
                 f"invalid status of refund {refund_id} of payment {payment.id}"
             )
@@ -701,7 +714,14 @@ class PayuProvider(BasicProvider):
                 f"refund {refund_id} of payment {payment.id} in different currency not supported yet: "
                 f"{refund_currency}"
             )
-        return refund_amount
+        if amount is not None and refund_amount != amount:
+            raise NotImplementedError(
+                f"refund {refund_id} of payment {payment.id} having a different amount than requested not supported "
+                f"yet: {refund_amount}"
+            )
+        # Return 0 in order not to change captured_amount yet. If we returned the amount, captured_amount would change
+        # twice (now and once we get a notification from PayU).
+        return Decimal(0)
 
 
 class PaymentProcessor(object):
