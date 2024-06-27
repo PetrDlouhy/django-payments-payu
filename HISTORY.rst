@@ -3,6 +3,10 @@
 History
 -------
 
+1.4.4 (2024-06-27)
+******************
+* fix PayuApiError: invalid response to refund
+
 1.4.3 (2024-05-15)
 ******************
 * fix "AttributeError: Manager isn't accessible via Payment instances" introduced in 1.4.1
