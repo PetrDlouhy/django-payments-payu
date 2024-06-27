@@ -340,7 +340,7 @@ class PayuProvider(BasicProvider):
             kwargs["headers"] = self.get_token_headers()
             response = requests.post(url, *args, **kwargs)
             response_dict = json.loads(response.text)
-            if (
+            if (response_dict.get("error") == "invalid_token") or (
                 "status" in response_dict
                 and "statusCode" in response_dict["status"]
                 and response_dict["status"]["statusCode"] == "UNAUTHORIZED"

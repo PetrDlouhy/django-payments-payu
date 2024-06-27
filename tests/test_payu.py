@@ -491,6 +491,34 @@ class TestPayuProvider(TestCase):
                 headers={"Content-Type": "application/x-www-form-urlencoded"},
             )
 
+    def test_redirect_payu_unauthorized_error(self):
+        self.set_up_provider(
+            True, False, get_refund_description=lambda payment, amount: "test"
+        )
+
+        with patch("requests.post") as mocked_post:
+            mocked_post.return_value = MagicMock(
+                status_code=401,
+                text='{"error": "invalid_token", "error_description": "Access token expired"}',
+            )
+
+            with self.assertRaisesRegex(
+                PayuApiError,
+                r"^Unable to regain authorization token "
+                r"\{'error': 'invalid_token', 'error_description': 'Access token expired'}$",
+            ):
+                self.provider.get_form(payment=self.payment)
+
+        mocked_post.assert_called_with(
+            "http://mock.url/pl/standard/user/oauth/authorize",
+            data={
+                "grant_type": "client_credentials",
+                "client_id": "123abc",
+                "client_secret": "123abc",
+            },
+            headers={"Content-Type": "application/x-www-form-urlencoded"},
+        )
+
     def test_get_access_token_trusted_merchant(self):
         self.set_up_provider(
             True, False, get_refund_description=lambda payment, amount: "test"
