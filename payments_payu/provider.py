@@ -9,7 +9,7 @@ from urllib.parse import urljoin
 import requests
 from django import forms
 from django.http.response import HttpResponse, HttpResponseRedirect
-from django.utils.html import format_html
+from django.utils.html import format_html, format_html_join
 from payments import FraudStatus, PaymentStatus, RedirectNeeded
 from payments.core import BasicProvider, get_base_url
 from payments.forms import PaymentForm
@@ -90,45 +90,40 @@ class WidgetPaymentForm(PaymentForm):
 
     def __init__(self, payu_base_url, script_params={}, *args, **kwargs):
         ret = super(WidgetPaymentForm, self).__init__(*args, **kwargs)
-        inline_code = format_html(
+        script_params["<foos><<"] = "<>'''q\""
+        form_html = format_html(
             "<script "
             f"src='{payu_base_url}front/widget/js/payu-bootstrap.js' "
-            "pay-button='#pay-button' {} >"
-            "</script>",
-            " ".join("%s=%s" % (k, v) for k, v in script_params.items()),
-        )
-
-        form_html = (
-            inline_code
-            + """
+            "pay-button='#pay-button' {params} >"
+            "</script>"
+            """
             <script>
-                function cardSuccess($data) {
+                function cardSuccess($data) {{
                     console.log('callback');
                     console.log($data);
                     $.post(
-                        '%s',
+                        '{process_url}',
                         $data,
-                        function(data){ window.location.href=data; }
+                        function(data){{ window.location.href=data; }}
                     );
-                }
-                function cvvSuccess($data) {
+                }}
+                function cvvSuccess($data) {{
                     console.log('cvv success');
                     console.log($data);
-                    window.location.href="%s";
-                }
+                    window.location.href="{success_url}";
+                }}
             </script>
             <div id="payu-widget"></div>
-            """
-            % (
-                urljoin(
-                    get_base_url(),
-                    self.payment.get_process_url(),
-                ),
-                urljoin(
-                    get_base_url(),
-                    self.payment.get_success_url(),
-                ),
-            )
+            """,
+            params=format_html_join(" ", "{}='{}'", ((k, v) for k, v in script_params.items())),
+            process_url=urljoin(
+                get_base_url(),
+                self.payment.get_process_url(),
+            ),
+            success_url=urljoin(
+                get_base_url(),
+                self.payment.get_success_url(),
+            ),
         )
         self.fields["script"].widget = HtmlOutputField(html=form_html)
         return ret

@@ -3,6 +3,10 @@
 History
 -------
 
+1.4.5 (2024-07-23)
+******************
+* fix safestring in Django 5.0
+
 1.4.4 (2024-06-27)
 ******************
 * fix PayuApiError: invalid response to refund
