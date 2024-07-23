@@ -3,6 +3,10 @@
 History
 -------
 
+1.4.6 (2024-07-23)
+******************
+* remove debug code committed by mistake
+
 1.4.5 (2024-07-23)
 ******************
 * fix safestring in Django 5.0

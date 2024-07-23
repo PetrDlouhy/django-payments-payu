@@ -90,7 +90,6 @@ class WidgetPaymentForm(PaymentForm):
 
     def __init__(self, payu_base_url, script_params={}, *args, **kwargs):
         ret = super(WidgetPaymentForm, self).__init__(*args, **kwargs)
-        script_params["<foos><<"] = "<>'''q\""
         form_html = format_html(
             "<script "
             f"src='{payu_base_url}front/widget/js/payu-bootstrap.js' "
