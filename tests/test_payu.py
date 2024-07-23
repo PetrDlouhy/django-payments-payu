@@ -3,6 +3,7 @@ from __future__ import unicode_literals
 import contextlib
 import json
 import warnings
+from django.template import Context, Template
 from copy import deepcopy
 from decimal import Decimal
 from unittest import TestCase
@@ -618,6 +619,7 @@ class TestPayuProvider(TestCase):
             True, True, get_refund_description=lambda payment, amount: "test"
         )
         self.payment.extra_data = json.dumps({"cvv_url": "foo_url"})
+        self.provider.payu_shop_name = "<script> alert('foo')</script>"  # XSS test
         with patch("requests.post") as mocked_post:
             post = MagicMock()
             post.text = json.dumps(
@@ -631,16 +633,14 @@ class TestPayuProvider(TestCase):
             mocked_post.return_value = post
             form = self.provider.get_form(payment=self.payment)
             self.assertEqual(form.__class__.__name__, "WidgetPaymentForm")
-            self.assertTrue(
-                "payu-widget" in form.fields["script"].widget.render("a", "b")
-            )
-            self.assertTrue(
-                "https://example.com/process_url/token"
-                in form.fields["script"].widget.render("a", "b")
-            )
-            self.assertTrue(
-                "cvv-url=foo_url" in form.fields["script"].widget.render("a", "b")
-            )
+
+            template = Template("{{form}}")
+            rendered_html = template.render(Context({"form": form}))
+            self.assertIn("payu-widget", rendered_html)
+            self.assertIn("https://example.com/process_url/token", rendered_html)
+            self.assertIn("cvv-url='foo_url'", rendered_html)
+            self.assertIn("shop-name='&lt;script&gt; alert(&#x27;foo&#x27;)&lt;/script&gt;'", rendered_html)
+            self.assertIn("</script>", rendered_html)  # Test, that escaping works correctly
 
     def test_redirect_3ds_form(self):
         """Test redirection to 3DS page if requested by PayU"""
