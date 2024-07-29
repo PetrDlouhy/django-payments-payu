@@ -22,9 +22,16 @@ jobs:
 
     strategy:
       matrix:
-        DJANGO_VERSION: [ '2.2.*', '3.0.*', '3.1.*', '3.2.*', '4.0.*', '4.1.*', '4.2.*', '5.0.*']
+        DJANGO_VERSION: ['2.2.*', '3.0.*', '3.1.*', '3.2.*', '4.0.*', '4.1.*', '4.2.*', '5.0.*', '5.1.*']
         python-version: ['3.7', '3.8', '3.9', '3.10', '3.11', '3.12']
         exclude:
+          - DJANGO_VERSION: '5.1.*'
+            python-version: '3.9'
+          - DJANGO_VERSION: '5.1.*'
+            python-version: '3.8'
+          - DJANGO_VERSION: '5.1.*'
+            python-version: '3.7'
+
           - DJANGO_VERSION: '5.0.*'
             python-version: '3.9'
           - DJANGO_VERSION: '5.0.*'
@@ -108,7 +115,7 @@ jobs:
            pip install -r requirements.txt
            pip install requests-mock mock pytest coveralls
            pip install psycopg2==2.8.6
-           pip install Django==${{ matrix.DJANGO_VERSION }}
+           pip install Django==${{ matrix.DJANGO_VERSION }} --pre
            pip install codecov
 
       - name: Testing
