@@ -114,7 +114,9 @@ class WidgetPaymentForm(PaymentForm):
             </script>
             <div id="payu-widget"></div>
             """,
-            params=format_html_join(" ", "{}='{}'", ((k, v) for k, v in script_params.items())),
+            params=format_html_join(
+                " ", "{}='{}'", ((k, v) for k, v in script_params.items())
+            ),
             process_url=urljoin(
                 get_base_url(),
                 self.payment.get_process_url(),
