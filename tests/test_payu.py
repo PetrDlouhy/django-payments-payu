@@ -634,7 +634,7 @@ class TestPayuProvider(TestCase):
             form = self.provider.get_form(payment=self.payment)
             self.assertEqual(form.__class__.__name__, "WidgetPaymentForm")
 
-            template = Template("{{form}}")
+            template = Template("{{form.as_p}}")
             rendered_html = template.render(Context({"form": form}))
             self.assertIn("payu-widget", rendered_html)
             self.assertIn("https://example.com/process_url/token", rendered_html)
