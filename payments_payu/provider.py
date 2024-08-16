@@ -597,6 +597,13 @@ class PayuProvider(BasicProvider):
                         type(payment).objects.filter(pk=payment.pk).update(
                             captured_amount=payment.captured_amount
                         )
+                    if status == PaymentStatus.CONFIRMED and payment.status != status:
+                        logger.warning(
+                            "Suspicious status change of payment %s: %s -> %s",
+                            payment.id,
+                            payment.status,
+                            status,
+                        )
                     payment.change_status(status)
                     return HttpResponse("ok", status=200)
         return HttpResponse("not ok", status=500)
