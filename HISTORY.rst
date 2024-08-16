@@ -3,6 +3,12 @@
 History
 -------
 
+1.5.0 (2024-08-16)
+******************
+* log warning when status changes out from confirmed
+* fix problem with form in Django 5.0
+* support Django 5.1
+
 1.4.6 (2024-07-23)
 ******************
 * remove debug code committed by mistake
