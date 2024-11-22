@@ -43,16 +43,20 @@ CENTS = Decimal("0.01")
 
 
 def add_extra_data(payment, new_extra_data):
+    payment.refresh_from_db()
     if payment.extra_data:
         old_extra_data = json.loads(payment.extra_data)
     else:
         old_extra_data = {}
     extra_data = {**old_extra_data, **new_extra_data}
     payment.extra_data = json.dumps(extra_data, indent=2)
-    payment.save()
+    payment._change_reason = 'PayU Payments: add_extra_data'  # For django-simple-history
+    payment.save(update_fields=["extra_data"])
+    payment._change_reason = None
 
 
 def add_new_status(payment, new_status):
+    payment.refresh_from_db()
     if payment.extra_data:
         old_extra_data = json.loads(payment.extra_data)
     else:
@@ -61,7 +65,9 @@ def add_new_status(payment, new_status):
         old_extra_data["statuses"] = []
     old_extra_data["statuses"].append(new_status)
     payment.extra_data = json.dumps(old_extra_data, indent=2)
-    payment.save()
+    payment._change_reason = 'PayU Payments: add_new_status'  # For django-simple-history
+    payment.save(update_fields=["extra_data"])
+    payment._change_reason = None
 
 
 def quantize_price(price, currency):
@@ -424,6 +430,9 @@ class PayuProvider(BasicProvider):
 
         try:
             payment.transaction_id = response_dict["orderId"]
+            payment._change_reason = 'PayU Payments: create_order -> transaction_id'  # For django-simple-history
+            payment.save(update_fields=["transaction_id"])
+            payment._change_reason = None
 
             if "payMethods" in response_dict:
                 payment.set_renew_token(
@@ -443,8 +452,6 @@ class PayuProvider(BasicProvider):
 
             if response_dict["status"]["statusCode"] == "SUCCESS":
                 if "redirectUri" in response_dict:
-                    payment.pay_link = response_dict["redirectUri"]
-                    payment.save()
                     return response_dict["redirectUri"]
                 else:
                     if auto_renew:
@@ -573,7 +580,9 @@ class PayuProvider(BasicProvider):
                             payment.change_status(PaymentStatus.REFUNDED)
                         else:
                             payment.captured_amount -= refunded_price
-                            payment.save()
+                            payment._change_reason = 'PayU Payments: process_notification -> refund'  # For django-simple-history
+                            payment.save(update_fields=["captured_amount, message"])
+                            payment._change_reason = None
                         return HttpResponse("ok", status=200)
                     else:
                         raise Exception("Refund was not finelized", data)
@@ -594,9 +603,9 @@ class PayuProvider(BasicProvider):
                             data["order"]["totalAmount"],
                             data["order"]["currencyCode"],
                         )
-                        type(payment).objects.filter(pk=payment.pk).update(
-                            captured_amount=payment.captured_amount
-                        )
+                        payment._change_reason = 'PayU Payments: process_notification -> confirmed'  # For django-simple-history
+                        payment.save(update_fields=["captured_amount"])
+                        payment._change_reason = None
                     if payment.status == PaymentStatus.CONFIRMED and payment.status != status:
                         logger.error(
                             "Suspicious status change of payment %s: %s -> %s",
@@ -660,7 +669,9 @@ class PayuProvider(BasicProvider):
         )
         payment_extra_data_refund_responses.append(response)
         payment.extra_data = json.dumps(payment_extra_data, indent=2)
+        payment._change_reason = 'PayU Payments: refund'  # For django-simple-history
         payment.save()
+        payment._change_reason = None
 
         try:
             refund = response["refund"]
