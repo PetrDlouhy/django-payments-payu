@@ -598,7 +598,7 @@ class PayuProvider(BasicProvider):
                             captured_amount=payment.captured_amount
                         )
                     if payment.status == PaymentStatus.CONFIRMED and payment.status != status:
-                        logger.warning(
+                        logger.error(
                             "Suspicious status change of payment %s: %s -> %s",
                             payment.id,
                             payment.status,
