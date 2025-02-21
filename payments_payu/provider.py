@@ -597,7 +597,10 @@ class PayuProvider(BasicProvider):
                         type(payment).objects.filter(pk=payment.pk).update(
                             captured_amount=payment.captured_amount
                         )
-                    if payment.status == PaymentStatus.CONFIRMED and payment.status != status:
+                    if (
+                        payment.status == PaymentStatus.CONFIRMED
+                        and payment.status != status
+                    ):
                         logger.error(
                             "Suspicious status change of payment %s: %s -> %s",
                             payment.id,
