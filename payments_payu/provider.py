@@ -219,7 +219,7 @@ class PayuProvider(BasicProvider):
         string += self.second_key
         return hashlib.sha256(string.encode("utf-8")).hexdigest().lower()
 
-    def auto_complete_recurring(self, payment):
+    def autocomplete_with_wallet(self, payment):
         renew_token = payment.get_renew_token()
         url = self.process_widget(
             payment, renew_token, recurring="STANDARD", auto_renew=True
@@ -597,7 +597,10 @@ class PayuProvider(BasicProvider):
                         type(payment).objects.filter(pk=payment.pk).update(
                             captured_amount=payment.captured_amount
                         )
-                    if payment.status == PaymentStatus.CONFIRMED and payment.status != status:
+                    if (
+                        payment.status == PaymentStatus.CONFIRMED
+                        and payment.status != status
+                    ):
                         logger.error(
                             "Suspicious status change of payment %s: %s -> %s",
                             payment.id,

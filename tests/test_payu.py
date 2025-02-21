@@ -1183,7 +1183,7 @@ class TestPayuProvider(TestCase):
         self.assertEqual(self.payment.status, PaymentStatus.WAITING)
         self.assertEqual(self.payment.captured_amount, Decimal("0"))
 
-    def test_auto_complete_recurring(self):
+    def test_autocomplete_with_wallet(self):
         """Test processing renew. The function should return 'success' string, if nothing is required from user."""
         self.set_up_provider(
             True, True, get_refund_description=lambda payment, amount: "test"
@@ -1193,7 +1193,7 @@ class TestPayuProvider(TestCase):
             post.text = '{"status": {"statusCode": "SUCCESS"}, "orderId": 123}'
             post.status_code = 200
             mocked_post.return_value = post
-            redirect = self.provider.auto_complete_recurring(self.payment)
+            redirect = self.provider.autocomplete_with_wallet(self.payment)
             self.assertEqual(redirect, "success")
         self.assertEqual(self.payment.status, PaymentStatus.WAITING)
         self.assertEqual(self.payment.captured_amount, Decimal("0"))
@@ -1201,7 +1201,7 @@ class TestPayuProvider(TestCase):
         self.assertEqual(self.payment.status, PaymentStatus.WAITING)
         self.assertEqual(self.payment.captured_amount, Decimal("0"))
 
-    def test_auto_complete_recurring_cvv2(self):
+    def test_autocomplete_with_wallet_cvv2(self):
         """Test processing renew when cvv2 form is required - it should return the payment processing URL"""
         self.set_up_provider(
             True, True, get_refund_description=lambda payment, amount: "test"
@@ -1217,7 +1217,7 @@ class TestPayuProvider(TestCase):
             )
             post.status_code = 200
             mocked_post.return_value = post
-            redirect = self.provider.auto_complete_recurring(self.payment)
+            redirect = self.provider.autocomplete_with_wallet(self.payment)
             self.assertEqual(redirect, "https://example.com/payment/token")
         self.assertEqual(self.payment.status, PaymentStatus.WAITING)
         self.assertEqual(self.payment.captured_amount, Decimal("0"))

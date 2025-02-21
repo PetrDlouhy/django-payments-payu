@@ -73,7 +73,7 @@ Here are valid parameters for the provider:
 
    * In order to make payments recurring, the card token needs to be stored for the ``Payment``'s user (not just the payment itself). Implement the ``Payment.set_renew_token()`` and ``Payment.get_renew_token()``.
    * Implement ``Payment.get_payment_url()``.
-   * For the server initiated recurring payments you will need to create the new payment and then call ``payment.auto_complete_recurring()``.
+   * For the server initiated recurring payments you will need to create the new payment and then call ``payment.autocomplete_with_wallet()``.
       * The method returns either string 'success' or url where the user can provide his CVV2 or 3D secure information.
       * The ``'success'`` string means, that the payment is waiting for notification from PayU, but no further user action is required.
 
@@ -81,7 +81,7 @@ Here are valid parameters for the provider:
 Example of triggering recurring payment::
 
        payment = Payment.objects.create(...)
-       redirect_url = payment.auto_complete_recurring()
+       redirect_url = payment.autocomplete_with_wallet()
        if redirect_url != 'success':
            send_mail(
                'Recurring payment - action required',
