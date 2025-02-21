@@ -50,12 +50,12 @@ def add_extra_data(payment, new_extra_data):
         old_extra_data = {}
     extra_data = {**old_extra_data, **new_extra_data}
     payment.extra_data = json.dumps(extra_data, indent=2)
-    payment_change_reason_original = payment._change_reason
+    original_reason = getattr(payment, "_change_reason", None)
     payment._change_reason = (
         "PayU Payments: add_new_status"  # For django-simple-history
     )
     payment.save(update_fields=["extra_data"])
-    payment._change_reason = payment_change_reason_original
+    payment._change_reason = original_reason
 
 
 def add_new_status(payment, new_status):
@@ -68,12 +68,12 @@ def add_new_status(payment, new_status):
         old_extra_data["statuses"] = []
     old_extra_data["statuses"].append(new_status)
     payment.extra_data = json.dumps(old_extra_data, indent=2)
-    payment_change_reason_original = payment._change_reason
+    original_reason = getattr(payment, "_change_reason", None)
     payment._change_reason = (
         "PayU Payments: add_new_status"  # For django-simple-history
     )
     payment.save(update_fields=["extra_data"])
-    payment._change_reason = payment_change_reason_original
+    payment._change_reason = original_reason
 
 
 def quantize_price(price, currency):
@@ -586,13 +586,13 @@ class PayuProvider(BasicProvider):
                             payment.change_status(PaymentStatus.REFUNDED)
                         else:
                             payment.captured_amount -= refunded_price
-                            payment_change_reason_original = payment._change_reason
+                            original_reason = getattr(payment, "_change_reason", None)
                             # Change history for django-simple-history
                             payment._change_reason = (
                                 "PayU Payments: process_notification -> refund"
                             )
                             payment.save(update_fields=["captured_amount", "message"])
-                            payment._change_reason = payment_change_reason_original
+                            payment._change_reason = original_reason
                         return HttpResponse("ok", status=200)
                     else:
                         raise Exception("Refund was not finelized", data)
@@ -613,13 +613,13 @@ class PayuProvider(BasicProvider):
                             data["order"]["totalAmount"],
                             data["order"]["currencyCode"],
                         )
-                        payment_change_reason_original = payment._change_reason
+                        original_reason = getattr(payment, "_change_reason", None)
                         # Change history for django-simple-history
                         payment._change_reason = (
                             "PayU Payments: process_notification -> confirmed"
                         )
                         payment.save(update_fields=["captured_amount"])
-                        payment._change_reason = payment_change_reason_original
+                        payment._change_reason = original_reason
                     if (
                         payment.status == PaymentStatus.CONFIRMED
                         and payment.status != status
