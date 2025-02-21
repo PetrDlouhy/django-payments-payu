@@ -184,11 +184,14 @@ class Payment(Mock):
             **{field: getattr(self, field) for field in update_fields}
         )
 
-    def refresh_from_db(self, *args, **kwargs):
+    def refresh_from_db(self, *args, fields=None, **kwargs):
         if args or kwargs:
             raise NotImplementedError(f"arguments not supported yet: {args}, {kwargs}")
         payment_from_db = Payment.objects.get(pk=self.pk)
-        for field in self._meta.get_fields(include_parents=True, include_hidden=True):
+        refresh_fields = self._meta.get_fields(include_parents=True, include_hidden=True)
+        if fields is not None:
+            refresh_fields = [field for field in refresh_fields if field.name in fields]
+        for field in refresh_fields:
             field_value_from_db = getattr(payment_from_db, field.name)
             setattr(self, field.name, field_value_from_db)
 
