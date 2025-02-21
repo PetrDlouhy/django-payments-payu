@@ -219,7 +219,7 @@ class PayuProvider(BasicProvider):
         string += self.second_key
         return hashlib.sha256(string.encode("utf-8")).hexdigest().lower()
 
-    def auto_complete_recurring(self, payment):
+    def autocomplete_with_wallet(self, payment):
         renew_token = payment.get_renew_token()
         url = self.process_widget(
             payment, renew_token, recurring="STANDARD", auto_renew=True
