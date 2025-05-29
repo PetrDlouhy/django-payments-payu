@@ -3,6 +3,15 @@
 History
 -------
 
+2.0.0 (2025-05-29)
+******************
+* implement the wallet logic
+* change extra_data with atomic operations to reduce concurrent problems
+* support Django 5.2
+* drop support for Python 3.7
+* log error if the payment is switching status out from confirmed
+* fix log warning if the payment is switching status out from confirmed
+
 1.5.0 (2024-08-16)
 ******************
 * log warning when status changes out from confirmed
