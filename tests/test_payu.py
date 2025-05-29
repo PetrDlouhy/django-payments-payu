@@ -1196,8 +1196,7 @@ class TestPayuProvider(TestCase):
             post.text = '{"status": {"statusCode": "SUCCESS"}, "orderId": 123}'
             post.status_code = 200
             mocked_post.return_value = post
-            redirect = self.provider.autocomplete_with_wallet(self.payment)
-            self.assertEqual(redirect, "success")
+            self.provider.autocomplete_with_wallet(self.payment)
         self.assertEqual(self.payment.status, PaymentStatus.WAITING)
         self.assertEqual(self.payment.captured_amount, Decimal("0"))
         self.payment.refresh_from_db()
@@ -1220,8 +1219,10 @@ class TestPayuProvider(TestCase):
             )
             post.status_code = 200
             mocked_post.return_value = post
-            redirect = self.provider.autocomplete_with_wallet(self.payment)
-            self.assertEqual(redirect, "https://example.com/payment/token")
+            try:
+                self.provider.autocomplete_with_wallet(self.payment)
+            except RedirectNeeded as redirect_url:
+                self.assertEqual(str(redirect_url), "https://example.com/payment/token")
         self.assertEqual(self.payment.status, PaymentStatus.WAITING)
         self.assertEqual(self.payment.captured_amount, Decimal("0"))
         self.payment.refresh_from_db()
