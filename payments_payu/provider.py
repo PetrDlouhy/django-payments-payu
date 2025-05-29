@@ -236,9 +236,8 @@ class PayuProvider(BasicProvider):
         url = self.process_widget(
             payment, renew_token, recurring="STANDARD", auto_renew=True
         )
-        if not url.startswith("http") and url != "success":
-            url = urljoin(get_base_url(), url)
-        return url
+        if url != "success":
+            raise RedirectNeeded(urljoin(get_base_url(), url))
 
     def get_form(self, payment, data={}):
         if not data:
