@@ -619,7 +619,10 @@ class TestPayuProvider(TestCase):
     def test_showing_cvv_form(self):
         """Test redirection to CVV form if requested by PayU"""
         self.set_up_provider(
-            True, True, get_refund_description=lambda payment, amount: "test"
+            True,
+            True,
+            get_refund_description=lambda payment, amount: "test",
+            get_buyer_language=lambda payment: "cs",
         )
         self.payment.extra_data = json.dumps({"cvv_url": "foo_url"})
         self.provider.payu_shop_name = "<script> alert('foo')</script>"  # XSS test
@@ -644,6 +647,7 @@ class TestPayuProvider(TestCase):
             self.assertIn("cvv-url='foo_url'", rendered_html)
             self.assertIn("shop-name='&lt;script&gt; alert(&#x27;foo&#x27;)&lt;/script&gt;'", rendered_html)
             self.assertIn("</script>", rendered_html)  # Test, that escaping works correctly
+            self.assertIn("customer-language='cs'", rendered_html)
 
     def test_redirect_3ds_form(self):
         """Test redirection to 3DS page if requested by PayU"""
@@ -1934,3 +1938,51 @@ class TestPayuProvider(TestCase):
                     json.loads(requests_post_mock_call_data_actual_json),
                     requests_post_mock_call_data_expected,
                 )
+
+    def test_buyer_language(self):
+        self.set_up_provider(
+            True,
+            False,
+            get_refund_description=lambda payment, amount: "test",
+            get_buyer_language=lambda payment: "pl",
+        )
+        with patch("requests.post", return_value=MagicMock(text="{}")) as mocked_post:
+            with self.assertRaises(RedirectNeeded):
+                self.provider.get_form(payment=self.payment)
+
+            mocked_post.assert_called_once_with(
+                "http://mock.url/api/v2_1/orders/",
+                allow_redirects=False,
+                data=JSONEquals(
+                    {
+                        "buyer": {
+                            "email": "foo@bar.com",
+                            "language": "pl",
+                            "lastName": "Bar",
+                            "firstName": "Foo",
+                            "phone": None,
+                        },
+                        "description": "payment",
+                        "totalAmount": 22000,
+                        "merchantPosId": "123abc",
+                        "customerIp": "123",
+                        "notifyUrl": "https://example.com/process_url/token",
+                        "extOrderId": "bar_token",
+                        "products": [
+                            {
+                                "currency": "USD",
+                                "name": "foo",
+                                "quantity": 10,
+                                "unitPrice": 2000,
+                                "subUnit": 100,
+                            }
+                        ],
+                        "continueUrl": "http://foo_succ.com",
+                        "currencyCode": "USD",
+                    },
+                ),
+                headers={
+                    "Authorization": "Bearer test_access_token",
+                    "Content-Type": "application/json",
+                },
+            )

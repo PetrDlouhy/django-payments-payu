@@ -219,6 +219,10 @@ class PayuProvider(BasicProvider):
         self.token = self.get_access_token(
             self.pos_id, self.client_secret, grant_type=self.grant_type
         )
+        self.get_buyer_language = kwargs.pop(
+            "get_buyer_language",
+            lambda payment: "en",
+        )
         super(PayuProvider, self).__init__(*args, **kwargs)
 
     def _get_payu_api_order_url(self, order_id):
@@ -268,7 +272,7 @@ class PayuProvider(BasicProvider):
             "shop-name": self.payu_shop_name,
             "total-amount": payment.total,
             "currency-code": payment.currency,
-            "customer-language": "en",
+            "customer-language": self.get_buyer_language(payment=payment),
             "success-callback": "cardSuccess",
         }
         if cvv_url:
@@ -316,6 +320,7 @@ class PayuProvider(BasicProvider):
             last_name=payment.billing_last_name,
             email=payment.billing_email,
             phone=None,
+            lang_code=self.get_buyer_language(payment=payment),
         )
         processor.external_id = payment.token
         processor.continueUrl = urljoin(get_base_url(), payment.get_success_url())
@@ -798,7 +803,7 @@ class PaymentProcessor(object):
             self.paymethods = {}
             self.paymethods["payMethod"] = {"type": method_type, "value": value}
 
-    def set_buyer_data(self, first_name, last_name, email, phone, lang_code="en"):
+    def set_buyer_data(self, first_name, last_name, email, phone, lang_code):
         "Set buyer data"
         if not hasattr(self, "buyer"):
             self.buyer = {

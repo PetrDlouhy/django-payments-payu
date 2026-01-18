@@ -44,6 +44,7 @@ Example::
               'capture': False,
               'get_refund_description': lambda payment, amount: 'My refund',
               'get_refund_ext_id': lambda payment, amount: str(uuid.uuid4()),
+              'get_buyer_language': lambda payment: 'cs',
           }),
       }
 
@@ -60,6 +61,7 @@ Here are valid parameters for the provider:
    :store_card:             (default: False) whether PayU should store the card
    :get_refund_description: An optional callable that is called with two keyword arguments `payment` and `amount` in order to get the string description of the particular refund whenever ``provider.refund(payment, amount)`` is called. The callable is optional because of backwards compatibility. However, if it is not set, an attempt to refund raises an exception. A default value of `get_refund_description` is deprecated.
    :get_refund_ext_id:      An optional callable that is called with two keyword arguments `payment` and `amount` in order to get the External string refund ID of the particular refund whenever ``provider.refund(payment, amount)`` is called. If ``None`` is returned, no External refund ID is set. An External refund ID is not necessary if partial refunds won't be performed more than once per second. Otherwise, a unique ID is recommended since `PayuProvider.refund` is idempotent and if exactly same data will be provided, it will return the result of the already previously performed refund instead of performing a new refund. Defaults to a random UUID version 4 in the standard form.
+   :get_buyer_language:     An optional callable that is called with with the keyword argument `payment` in order to get the language for the hosted payment page and e-mail messages sent from PayU to the payer. Consult `the documentation <https://developers.payu.com/europe/docs/get-started/integration-overview/references/#languages>`_ for an up-to-date list of supported language codes and their capabilities. When not set, a default value of ``en`` will be used.
 
 
    NOTE: notifications about the payment status from PayU are requested to be sent to `django-payments` `process_payment` url. The request from PayU can fail for several reasons (i.e. it can be blocked by proxy). Use "Show reports" page in PayU administration to get more information about the requests.
