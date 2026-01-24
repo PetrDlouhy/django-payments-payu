@@ -2,6 +2,9 @@
 
 History
 -------
+2.1.0 (2026-01-24)
+******************
+* add optional get_buyer_language argument to PayuProvider
 
 2.0.0 (2025-05-29)
 ******************
