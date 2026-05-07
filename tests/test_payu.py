@@ -407,6 +407,83 @@ class TestPayuProvider(TestCase):
             with self.assertRaises(RedirectNeeded) as context:
                 self.provider.get_form(payment=self.payment)
             self.assertEqual(context.exception.args[0], "")
+            self.assertEqual(self.payment.status, PaymentStatus.CONFIRMED)
+
+    def test_redirect_payu_confirmed_payment_other_error(self):
+        """A duplicate create_order on a CONFIRMED payment must not demote it.
+
+        PayU may reject a re-submitted order with any of several status codes
+        (single-use widget token expired, antifraud, generic BUSINESS_ERROR,
+        plain ERROR, ...) - not just ERROR_ORDER_NOT_UNIQUE. Whatever the
+        rejection reason, if our payment is already CONFIRMED (typically via
+        an asynchronous PayU webhook), we must keep the CONFIRMED state.
+        """
+        self.set_up_provider(
+            True, False, get_refund_description=lambda payment, amount: "test"
+        )
+        self.payment.status = PaymentStatus.CONFIRMED
+        self.payment.save()
+        with patch("requests.post") as mocked_post:
+            post = MagicMock()
+            post_text = {
+                "redirectUri": "test_redirect_uri",
+                "status": {
+                    "statusCode": "ERROR_VALUE_INVALID",
+                    "codeLiteral": "Foo code",
+                },
+                "orderId": 123,
+            }
+            post.text = json.dumps(post_text)
+            post.status_code = 200
+            mocked_post.return_value = post
+            with self.assertRaises(RedirectNeeded) as context:
+                self.provider.get_form(payment=self.payment)
+            self.assertEqual(context.exception.args[0], "")
+            self.assertEqual(self.payment.status, PaymentStatus.CONFIRMED)
+
+    def test_redirect_payu_confirmed_payment_business_error(self):
+        """A BUSINESS_ERROR on a CONFIRMED payment must not demote it.
+
+        BUSINESS_ERROR has a side effect of setting fraud_status=REJECT, but
+        that must not also flip a CONFIRMED payment to ERROR.
+        """
+        self.set_up_provider(
+            True, False, get_refund_description=lambda payment, amount: "test"
+        )
+        self.payment.status = PaymentStatus.CONFIRMED
+        self.payment.save()
+        with patch("requests.post") as mocked_post:
+            post = MagicMock()
+            post_text = {
+                "redirectUri": "test_redirect_uri",
+                "status": {"statusCode": "BUSINESS_ERROR", "codeLiteral": "Foo code"},
+                "orderId": 123,
+            }
+            post.text = json.dumps(post_text)
+            post.status_code = 200
+            mocked_post.return_value = post
+            with self.assertRaises(RedirectNeeded) as context:
+                self.provider.get_form(payment=self.payment)
+            self.assertEqual(context.exception.args[0], "")
+            self.assertEqual(self.payment.status, PaymentStatus.CONFIRMED)
+            self.assertEqual(self.payment.fraud_status, FraudStatus.REJECT)
+
+    def test_redirect_payu_confirmed_payment_no_status_in_response(self):
+        """Even a malformed PayU response must not demote a CONFIRMED payment."""
+        self.set_up_provider(
+            True, False, get_refund_description=lambda payment, amount: "test"
+        )
+        self.payment.status = PaymentStatus.CONFIRMED
+        self.payment.save()
+        with patch("requests.post") as mocked_post:
+            post = MagicMock()
+            post.text = json.dumps({"redirectUri": "test_redirect_uri", "orderId": 123})
+            post.status_code = 200
+            mocked_post.return_value = post
+            with self.assertRaises(RedirectNeeded) as context:
+                self.provider.get_form(payment=self.payment)
+            self.assertEqual(context.exception.args[0], "")
+            self.assertEqual(self.payment.status, PaymentStatus.CONFIRMED)
 
     def test_redirect_payu_no_status_code(self):
         self.set_up_provider(

@@ -482,12 +482,21 @@ class PayuProvider(BasicProvider):
                 payment.change_fraud_status(FraudStatus.REJECT, message=response_dict)
             else:
                 add_extra_data(payment, response_dict)
-            if (
-                response_dict["status"]["statusCode"] == "ERROR_ORDER_NOT_UNIQUE"
-                and payment.status == PaymentStatus.CONFIRMED
-            ):
-                # Payment was already processed, so just refresh the payment page to show it to user
-                return ""
+        if payment.status == PaymentStatus.CONFIRMED:
+            # The payment was already confirmed (typically by an asynchronous
+            # PayU webhook on a parallel request). A duplicate create_order -
+            # e.g. the user's browser POSTing to the process URL again after
+            # 3DS or on retry - is rejected by PayU (single-use widget token,
+            # ERROR_ORDER_NOT_UNIQUE, antifraud, ...). Don't demote the
+            # CONFIRMED state to ERROR; just send the user back to a page
+            # where the confirmed status will be reflected.
+            logger.info(
+                "PayU rejected create_order for an already CONFIRMED payment "
+                "(id=%s); keeping CONFIRMED state. Response: %s",
+                payment.pk,
+                response_dict,
+            )
+            return ""
         payment.change_status(PaymentStatus.ERROR)
         try:
             raise PayuApiError(response_dict)

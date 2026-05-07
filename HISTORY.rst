@@ -2,6 +2,14 @@
 
 History
 -------
+2.1.1 (unreleased)
+******************
+* fix create_order demoting an already CONFIRMED payment to ERROR when PayU
+  rejects a duplicate request (e.g. the user's browser POSTs to the process
+  URL again after 3DS while a parallel webhook has already confirmed the
+  payment). The existing narrow guard for ERROR_ORDER_NOT_UNIQUE is
+  generalised to keep CONFIRMED state regardless of PayU's rejection reason.
+
 2.1.0 (2026-01-24)
 ******************
 * add optional get_buyer_language argument to PayuProvider
