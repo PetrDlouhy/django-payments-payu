@@ -2,7 +2,7 @@
 
 History
 -------
-2.1.1 (unreleased)
+2.1.1 (2026-05-07)
 ******************
 * fix create_order demoting an already CONFIRMED payment to ERROR when PayU
   rejects a duplicate request (e.g. the user's browser POSTs to the process
