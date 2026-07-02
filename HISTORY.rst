@@ -2,6 +2,18 @@
 
 History
 -------
+unreleased
+**********
+* add optional Google Pay button to the express payment form (``google_pay``
+  provider parameter). The Google Pay token is charged through a standard
+  PayU order (pay-by-link method ``ap`` with base64 ``authorizationCode``);
+  with ``recurring_payments=True`` the first order is sent with
+  ``recurring=FIRST`` and the returned multi-use card token is stored for
+  server-initiated renewals.
+* create_order: don't overwrite the stored renew token when the order
+  response echoes a pay method without card data (e.g. a wallet pay-by-link
+  method), which is not a reusable card token.
+
 2.1.1 (2026-05-07)
 ******************
 * fix create_order demoting an already CONFIRMED payment to ERROR when PayU

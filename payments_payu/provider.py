@@ -1,9 +1,11 @@
+import base64
 import hashlib
 import json
 import logging
 import uuid
 import warnings
 from decimal import ROUND_HALF_UP, Decimal
+from string import Template
 from urllib.parse import urljoin
 
 import requests
@@ -40,6 +42,75 @@ CURRENCY_SUB_UNIT = {
 
 
 CENTS = Decimal("0.01")
+
+GOOGLE_PAY_ALLOWED_AUTH_METHODS = ["PAN_ONLY", "CRYPTOGRAM_3DS"]
+GOOGLE_PAY_ALLOWED_CARD_NETWORKS = ["MASTERCARD", "VISA"]
+
+# Rendered with string.Template ($config, $process_url) because the JS is full
+# of braces that format_html would treat as placeholders.
+GOOGLE_PAY_SCRIPT_TEMPLATE = Template("""
+<div id="google-pay-button"></div>
+<script>
+(function() {
+    var cfg = $config;
+    var cardPaymentMethod = {
+        type: 'CARD',
+        parameters: {
+            allowedAuthMethods: cfg.allowed_auth_methods,
+            allowedCardNetworks: cfg.allowed_card_networks
+        },
+        tokenizationSpecification: {
+            type: 'PAYMENT_GATEWAY',
+            parameters: {
+                gateway: 'payu',
+                gatewayMerchantId: cfg.gateway_merchant_id
+            }
+        }
+    };
+    window.onGooglePayLoaded = function() {
+        var client = new google.payments.api.PaymentsClient({environment: cfg.environment});
+        client.isReadyToPay({
+            apiVersion: 2,
+            apiVersionMinor: 0,
+            allowedPaymentMethods: [cardPaymentMethod]
+        }).then(function(response) {
+            if (!response.result) {
+                return;
+            }
+            var button = client.createButton({onClick: function() {
+                client.loadPaymentData({
+                    apiVersion: 2,
+                    apiVersionMinor: 0,
+                    allowedPaymentMethods: [cardPaymentMethod],
+                    transactionInfo: {
+                        totalPriceStatus: 'FINAL',
+                        totalPrice: cfg.total,
+                        currencyCode: cfg.currency
+                    },
+                    merchantInfo: cfg.merchant_info
+                }).then(function(paymentData) {
+                    var body = new URLSearchParams();
+                    body.append('google_pay_token', paymentData.paymentMethodData.tokenizationData.token);
+                    return fetch('$process_url', {
+                        method: 'POST',
+                        headers: {'Content-Type': 'application/x-www-form-urlencoded'},
+                        body: body.toString()
+                    }).then(function(response) {
+                        return response.text();
+                    }).then(function(url) {
+                        window.location.href = url;
+                    });
+                }).catch(function(err) {
+                    console.log('Google Pay payment did not complete', err);
+                });
+            }});
+            document.getElementById('google-pay-button').appendChild(button);
+        });
+    };
+})();
+</script>
+<script src="https://pay.google.com/gp/p/js/pay.js" async onload="onGooglePayLoaded()"></script>
+""")
 
 
 def add_extra_data(payment, new_extra_data):
@@ -100,9 +171,11 @@ class WidgetPaymentForm(PaymentForm):
     hide_submit_button = True  # For easy use in templates
     script = forms.CharField(label="Script")
 
-    def __init__(self, payu_base_url, script_params={}, *args, **kwargs):
+    def __init__(
+        self, payu_base_url, script_params={}, google_pay_html="", *args, **kwargs
+    ):
         ret = super(WidgetPaymentForm, self).__init__(*args, **kwargs)
-        form_html = format_html(
+        form_html = google_pay_html + format_html(
             "<script "
             f"src='{payu_base_url}front/widget/js/payu-bootstrap.js' "
             "pay-button='#pay-button' {params} >"
@@ -213,6 +286,10 @@ class PayuProvider(BasicProvider):
         self.card_on_file = kwargs.pop("card_on_file", False)
 
         self.express_payments = kwargs.pop("express_payments", False)
+        # Google Pay express button, only valid with express_payments=True.
+        # A dict with optional keys: merchant_id, merchant_name, environment,
+        # gateway_merchant_id, allowed_auth_methods, allowed_card_networks.
+        self.google_pay = kwargs.pop("google_pay", None)
         self.retry_count = 5
 
         self.pos_id = kwargs.pop("pos_id")
@@ -299,8 +376,40 @@ class PayuProvider(BasicProvider):
             payu_base_url=self.payu_base_url,
             data=data,
             script_params=payu_data,
+            google_pay_html=self.get_google_pay_html(payment) if not cvv_url else "",
             provider=self,
             payment=payment,
+        )
+
+    def get_google_pay_html(self, payment):
+        """Render the Google Pay button + JS for the express payment form."""
+        if not self.google_pay:
+            return ""
+        merchant_info = {}
+        if self.google_pay.get("merchant_name"):
+            merchant_info["merchantName"] = self.google_pay["merchant_name"]
+        if self.google_pay.get("merchant_id"):
+            merchant_info["merchantId"] = self.google_pay["merchant_id"]
+        config = {
+            "environment": self.google_pay.get(
+                "environment", "TEST" if self.payu_sandbox else "PRODUCTION"
+            ),
+            "gateway_merchant_id": str(
+                self.google_pay.get("gateway_merchant_id", self.pos_id)
+            ),
+            "allowed_auth_methods": self.google_pay.get(
+                "allowed_auth_methods", GOOGLE_PAY_ALLOWED_AUTH_METHODS
+            ),
+            "allowed_card_networks": self.google_pay.get(
+                "allowed_card_networks", GOOGLE_PAY_ALLOWED_CARD_NETWORKS
+            ),
+            "total": str(payment.total.quantize(CENTS)),
+            "currency": payment.currency,
+            "merchant_info": merchant_info,
+        }
+        return GOOGLE_PAY_SCRIPT_TEMPLATE.substitute(
+            config=json.dumps(config),
+            process_url=urljoin(get_base_url(), payment.get_process_url()),
         )
 
     def get_processor(self, payment):
@@ -345,6 +454,29 @@ class PayuProvider(BasicProvider):
         data = self.process_widget(payment, card_token, recurring)
         if recurring == "STANDARD":
             return HttpResponseRedirect(data)
+        return HttpResponse(data, status=200)
+
+    def process_google_pay_callback(self, payment, google_pay_token):
+        """Charge an order with a Google Pay token from the express form.
+
+        PayU expects the raw Google Pay token base64-encoded in the
+        authorizationCode of an "ap" pay-by-link method. The first payment of
+        a recurring plan is sent with recurring=FIRST so PayU issues a
+        multi-use card token for later renewals.
+        """
+        processor = self.get_processor(payment)
+        if self.card_on_file:
+            processor.cardOnFile = "FIRST"
+        elif self.recurring_payments:
+            processor.recurring = "FIRST"
+        processor.set_paymethod(
+            method_type="PBL",
+            value="ap",
+            authorization_code=base64.b64encode(
+                google_pay_token.encode("utf-8")
+            ).decode("ascii"),
+        )
+        data = self.create_order(payment, processor)
         return HttpResponse(data, status=200)
 
     def post_request(self, url, *args, **kwargs):
@@ -445,19 +577,20 @@ class PayuProvider(BasicProvider):
             payment._change_reason = None
 
             if "payMethods" in response_dict:
-                payment.set_renew_token(
-                    response_dict["payMethods"]["payMethod"]["value"],
-                    card_expire_year=response_dict["payMethods"]["payMethod"]["card"][
-                        "expirationYear"
-                    ],
-                    card_expire_month=response_dict["payMethods"]["payMethod"]["card"][
-                        "expirationMonth"
-                    ],
-                    card_masked_number=response_dict["payMethods"]["payMethod"]["card"][
-                        "number"
-                    ],
-                    renewal_triggered_by="task" if self.recurring_payments else "user",
-                )
+                pay_method = response_dict["payMethods"]["payMethod"]
+                # A wallet order (Google Pay) can echo the pay-by-link method
+                # ("ap") without card data; that value is not a reusable card
+                # token, so don't overwrite the stored renew token with it.
+                if "card" in pay_method:
+                    payment.set_renew_token(
+                        pay_method["value"],
+                        card_expire_year=pay_method["card"]["expirationYear"],
+                        card_expire_month=pay_method["card"]["expirationMonth"],
+                        card_masked_number=pay_method["card"]["number"],
+                        renewal_triggered_by=(
+                            "task" if self.recurring_payments else "user"
+                        ),
+                    )
             add_extra_data(payment, {"card_response": response_dict})
 
             if response_dict["status"]["statusCode"] == "SUCCESS":
@@ -654,6 +787,10 @@ class PayuProvider(BasicProvider):
 
         if "application/json" in request.META.get("CONTENT_TYPE", {}):
             return self.process_notification(payment, request)
+        elif "google_pay_token" in request.POST:
+            return self.process_google_pay_callback(
+                payment, request.POST["google_pay_token"]
+            )
         elif renew_token and self.recurring_payments:
             return self.process_widget_callback(
                 payment, renew_token, recurring="STANDARD"
@@ -806,11 +943,13 @@ class PaymentProcessor(object):
             }
             yield item
 
-    def set_paymethod(self, value, method_type="PBL"):
+    def set_paymethod(self, value, method_type="PBL", authorization_code=None):
         "Set payment method, can given by PayuApi.get_paymethod_tokens()"
         if not hasattr(self, "paymethods"):
             self.paymethods = {}
             self.paymethods["payMethod"] = {"type": method_type, "value": value}
+            if authorization_code:
+                self.paymethods["payMethod"]["authorizationCode"] = authorization_code
 
     def set_buyer_data(self, first_name, last_name, email, phone, lang_code):
         "Set buyer data"

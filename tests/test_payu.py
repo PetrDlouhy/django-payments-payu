@@ -1,5 +1,6 @@
 from __future__ import unicode_literals
 
+import base64
 import contextlib
 import json
 import warnings
@@ -830,6 +831,269 @@ class TestPayuProvider(TestCase):
         )
         self.assertEqual(self.payment.status, PaymentStatus.WAITING)
         self.assertEqual(self.payment.captured_amount, Decimal("0"))
+        self.assertNotIn(
+            "google-pay-button", form.fields["script"].widget.render("a", "b")
+        )
+
+    def test_payu_widget_form_google_pay(self):
+        """Test that the Google Pay button is rendered in the express form"""
+        self.set_up_provider(
+            True,
+            True,
+            get_refund_description=lambda payment, amount: "test",
+            google_pay={
+                "merchant_id": "test_merchant_id",
+                "merchant_name": "Test shop",
+            },
+        )
+        self.payment.token = None
+        form = self.provider.get_form(payment=self.payment)
+        self.assertEqual(form.__class__.__name__, "WidgetPaymentForm")
+        html = form.fields["script"].widget.render("a", "b")
+        self.assertIn("payu-widget", html)
+        self.assertIn("google-pay-button", html)
+        self.assertIn("https://pay.google.com/gp/p/js/pay.js", html)
+        self.assertIn('"environment": "PRODUCTION"', html)
+        self.assertIn('"gateway_merchant_id": "123abc"', html)
+        self.assertIn('"merchantId": "test_merchant_id"', html)
+        self.assertIn('"merchantName": "Test shop"', html)
+        self.assertIn('"total": "220.00"', html)
+        self.assertIn('"currency": "USD"', html)
+        self.assertIn("https://example.com/process_url/token", html)
+
+    def test_payu_widget_form_google_pay_sandbox(self):
+        """Test that the Google Pay button uses TEST environment on sandbox"""
+        self.set_up_provider(
+            True,
+            True,
+            get_refund_description=lambda payment, amount: "test",
+            google_pay={"merchant_id": "test_merchant_id"},
+            sandbox=True,
+        )
+        self.payment.token = None
+        form = self.provider.get_form(payment=self.payment)
+        html = form.fields["script"].widget.render("a", "b")
+        self.assertIn('"environment": "TEST"', html)
+
+    def test_payu_widget_form_google_pay_not_on_cvv(self):
+        """Test that the Google Pay button is not rendered on the CVV form"""
+        self.set_up_provider(
+            True,
+            True,
+            get_refund_description=lambda payment, amount: "test",
+            google_pay={"merchant_id": "test_merchant_id"},
+        )
+        self.payment.token = None
+        self.payment.extra_data = json.dumps({"cvv_url": "http://cvv.url"})
+        form = self.provider.get_form(payment=self.payment)
+        html = form.fields["script"].widget.render("a", "b")
+        self.assertIn("payu-widget", html)
+        self.assertNotIn("google-pay-button", html)
+
+    def test_process_google_pay(self):
+        """Test processing a Google Pay token callback with recurring FIRST"""
+        self.set_up_provider(
+            True,
+            True,
+            get_refund_description=lambda payment, amount: "test",
+            google_pay={"merchant_id": "test_merchant_id"},
+        )
+        self.payment.token = None
+        google_pay_token = '{"signature": "foo", "signedMessage": "bar"}'
+        mocked_request = MagicMock()
+        mocked_request.POST = {"google_pay_token": google_pay_token}
+        mocked_request.META = {}
+        with patch("requests.post") as mocked_post:
+            post = MagicMock()
+            post.text = '{"status": {"statusCode": "SUCCESS"}, "orderId": 123}'
+            post.status_code = 200
+            mocked_post.return_value = post
+            response = self.provider.process_data(
+                payment=self.payment, request=mocked_request
+            )
+            self.assertEqual(response.__class__.__name__, "HttpResponse")
+            self.assertEqual(response.status_code, 200)
+            self.assertEqual(response.content, b"http://foo_succ.com")
+            mocked_post.assert_called_once_with(
+                "http://mock.url/api/v2_1/orders/",
+                allow_redirects=False,
+                data=JSONEquals(
+                    {
+                        "recurring": "FIRST",
+                        "customerIp": "123",
+                        "totalAmount": 22000,
+                        "description": "payment",
+                        "extOrderId": None,
+                        "products": [
+                            {
+                                "name": "foo",
+                                "subUnit": 100,
+                                "currency": "USD",
+                                "unitPrice": 2000,
+                                "quantity": 10,
+                            }
+                        ],
+                        "continueUrl": "http://foo_succ.com",
+                        "merchantPosId": "123abc",
+                        "currencyCode": "USD",
+                        "payMethods": {
+                            "payMethod": {
+                                "type": "PBL",
+                                "value": "ap",
+                                "authorizationCode": base64.b64encode(
+                                    google_pay_token.encode("utf-8")
+                                ).decode("ascii"),
+                            }
+                        },
+                        "buyer": {
+                            "firstName": "Foo",
+                            "email": "foo@bar.com",
+                            "language": "en",
+                            "phone": None,
+                            "lastName": "Bar",
+                        },
+                        "notifyUrl": "https://example.com/process_url/token",
+                    }
+                ),
+                headers={
+                    "Authorization": "Bearer test_access_token",
+                    "Content-Type": "application/json",
+                },
+            )
+        self.assertEqual(self.payment.status, PaymentStatus.WAITING)
+        self.assertEqual(self.payment.captured_amount, Decimal("0"))
+
+    def test_process_google_pay_non_recurring(self):
+        """Test that a one-off Google Pay order is sent without recurring"""
+        self.set_up_provider(
+            False,
+            True,
+            get_refund_description=lambda payment, amount: "test",
+            google_pay={"merchant_id": "test_merchant_id"},
+        )
+        self.payment.token = None
+        google_pay_token = '{"signature": "foo"}'
+        mocked_request = MagicMock()
+        mocked_request.POST = {"google_pay_token": google_pay_token}
+        mocked_request.META = {}
+        with patch("requests.post") as mocked_post:
+            post = MagicMock()
+            post.text = '{"status": {"statusCode": "SUCCESS"}, "orderId": 123}'
+            post.status_code = 200
+            mocked_post.return_value = post
+            response = self.provider.process_data(
+                payment=self.payment, request=mocked_request
+            )
+            self.assertEqual(response.status_code, 200)
+            sent_data = json.loads(mocked_post.call_args[1]["data"])
+            self.assertNotIn("recurring", sent_data)
+            self.assertEqual(
+                sent_data["payMethods"]["payMethod"],
+                {
+                    "type": "PBL",
+                    "value": "ap",
+                    "authorizationCode": base64.b64encode(
+                        google_pay_token.encode("utf-8")
+                    ).decode("ascii"),
+                },
+            )
+
+    def test_process_google_pay_3ds(self):
+        """Test that a Google Pay order requiring 3DS returns the redirect URL"""
+        self.set_up_provider(
+            True,
+            True,
+            get_refund_description=lambda payment, amount: "test",
+            google_pay={"merchant_id": "test_merchant_id"},
+        )
+        self.payment.token = None
+        mocked_request = MagicMock()
+        mocked_request.POST = {"google_pay_token": '{"signature": "foo"}'}
+        mocked_request.META = {}
+        with patch("requests.post") as mocked_post:
+            post = MagicMock()
+            post.text = json.dumps(
+                {
+                    "redirectUri": "test_redirect_uri",
+                    "status": {"statusCode": "WARNING_CONTINUE_3DS"},
+                    "orderId": 123,
+                }
+            )
+            post.status_code = 200
+            mocked_post.return_value = post
+            response = self.provider.process_data(
+                payment=self.payment, request=mocked_request
+            )
+            self.assertEqual(response.status_code, 200)
+            self.assertEqual(response.content, b"test_redirect_uri")
+        self.assertEqual(
+            json.loads(self.payment.extra_data)["3ds_url"], "test_redirect_uri"
+        )
+
+    def test_process_google_pay_stores_multi_use_token(self):
+        """Test that a multi-use card token from a Google Pay order is stored"""
+        self.set_up_provider(
+            True,
+            True,
+            get_refund_description=lambda payment, amount: "test",
+            google_pay={"merchant_id": "test_merchant_id"},
+        )
+        self.payment.token = None
+        mocked_request = MagicMock()
+        mocked_request.POST = {"google_pay_token": '{"signature": "foo"}'}
+        mocked_request.META = {}
+        with patch("requests.post") as mocked_post:
+            post = MagicMock()
+            post.text = json.dumps(
+                {
+                    "status": {"statusCode": "SUCCESS"},
+                    "orderId": 123,
+                    "payMethods": {
+                        "payMethod": {
+                            "value": "TOKC_MULTI_USE",
+                            "card": {
+                                "expirationYear": 2031,
+                                "expirationMonth": 6,
+                                "number": "1234xxx",
+                            },
+                        }
+                    },
+                }
+            )
+            post.status_code = 200
+            mocked_post.return_value = post
+            self.provider.process_data(payment=self.payment, request=mocked_request)
+        self.assertEqual(self.payment.token, "TOKC_MULTI_USE")
+        self.assertEqual(self.payment.card_expire_year, 2031)
+        self.assertEqual(self.payment.card_expire_month, 6)
+        self.assertEqual(self.payment.card_masked_number, "1234xxx")
+        self.assertEqual(self.payment.renewal_triggered_by, "task")
+
+    def test_process_google_pay_paymethod_echo_not_stored(self):
+        """Test that a pay method echo without card data is not stored as a renew token"""
+        self.set_up_provider(
+            True,
+            True,
+            get_refund_description=lambda payment, amount: "test",
+            google_pay={"merchant_id": "test_merchant_id"},
+        )
+        self.payment.token = None
+        mocked_request = MagicMock()
+        mocked_request.POST = {"google_pay_token": '{"signature": "foo"}'}
+        mocked_request.META = {}
+        with patch("requests.post") as mocked_post:
+            post = MagicMock()
+            post.text = json.dumps(
+                {
+                    "status": {"statusCode": "SUCCESS"},
+                    "orderId": 123,
+                    "payMethods": {"payMethod": {"value": "ap", "type": "PBL"}},
+                }
+            )
+            post.status_code = 200
+            mocked_post.return_value = post
+            self.provider.process_data(payment=self.payment, request=mocked_request)
+        self.assertIsNone(self.payment.token)
 
     def test_process_notification(self):
         """Test processing PayU notification"""
