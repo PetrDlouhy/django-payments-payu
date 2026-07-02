@@ -12,6 +12,7 @@ import requests
 from django import forms
 from django.http.response import HttpResponse, HttpResponseRedirect
 from django.utils.html import format_html, format_html_join
+from django.utils.safestring import mark_safe
 from payments import FraudStatus, PaymentStatus, RedirectNeeded
 from payments.core import BasicProvider, get_base_url
 from payments.forms import PaymentForm
@@ -175,12 +176,18 @@ class WidgetPaymentForm(PaymentForm):
         self, payu_base_url, script_params={}, google_pay_html="", *args, **kwargs
     ):
         ret = super(WidgetPaymentForm, self).__init__(*args, **kwargs)
-        form_html = google_pay_html + format_html(
-            "<script "
-            f"src='{payu_base_url}front/widget/js/payu-bootstrap.js' "
-            "pay-button='#pay-button' {params} >"
-            "</script>"
-            """
+        # mark_safe: plain-str concatenation would demote format_html's
+        # SafeString and get the whole widget HTML escaped when rendered.
+        # google_pay_html is server-built (no user input, see
+        # PayuProvider.get_google_pay_html).
+        form_html = mark_safe(
+            google_pay_html
+            + format_html(
+                "<script "
+                f"src='{payu_base_url}front/widget/js/payu-bootstrap.js' "
+                "pay-button='#pay-button' {params} >"
+                "</script>"
+                """
             <script>
                 function cardSuccess($data) {{
                     console.log('callback');
@@ -199,17 +206,18 @@ class WidgetPaymentForm(PaymentForm):
             </script>
             <div id="payu-widget"></div>
             """,
-            params=format_html_join(
-                " ", "{}='{}'", ((k, v) for k, v in script_params.items())
-            ),
-            process_url=urljoin(
-                get_base_url(),
-                self.payment.get_process_url(),
-            ),
-            success_url=urljoin(
-                get_base_url(),
-                self.payment.get_success_url(),
-            ),
+                params=format_html_join(
+                    " ", "{}='{}'", ((k, v) for k, v in script_params.items())
+                ),
+                process_url=urljoin(
+                    get_base_url(),
+                    self.payment.get_process_url(),
+                ),
+                success_url=urljoin(
+                    get_base_url(),
+                    self.payment.get_success_url(),
+                ),
+            )
         )
         self.fields["script"].widget = HtmlOutputField(html=form_html)
         return ret
