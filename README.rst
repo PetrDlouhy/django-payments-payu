@@ -59,6 +59,7 @@ Here are valid parameters for the provider:
    :express_payments:       use PayU express form
    :widget_branding:        tell express form to show PayU branding
    :store_card:             (default: False) whether PayU should store the card
+   :google_pay:             (default: None) a dict that enables a Google Pay button next to the express form, only valid with ``express_payments=True``, see below
    :get_refund_description: An optional callable that is called with two keyword arguments `payment` and `amount` in order to get the string description of the particular refund whenever ``provider.refund(payment, amount)`` is called. The callable is optional because of backwards compatibility. However, if it is not set, an attempt to refund raises an exception. A default value of `get_refund_description` is deprecated.
    :get_refund_ext_id:      An optional callable that is called with two keyword arguments `payment` and `amount` in order to get the External string refund ID of the particular refund whenever ``provider.refund(payment, amount)`` is called. If ``None`` is returned, no External refund ID is set. An External refund ID is not necessary if partial refunds won't be performed more than once per second. Otherwise, a unique ID is recommended since `PayuProvider.refund` is idempotent and if exactly same data will be provided, it will return the result of the already previously performed refund instead of performing a new refund. Defaults to a random UUID version 4 in the standard form.
    :get_buyer_language:     An optional callable that is called with with the keyword argument `payment` in order to get the language for the hosted payment page and e-mail messages sent from PayU to the payer. Consult `the documentation <https://developers.payu.com/europe/docs/get-started/integration-overview/references/#languages>`_ for an up-to-date list of supported language codes and their capabilities. When not set, a default value of ``en`` will be used.
@@ -66,6 +67,33 @@ Here are valid parameters for the provider:
 
    NOTE: notifications about the payment status from PayU are requested to be sent to `django-payments` `process_payment` url. The request from PayU can fail for several reasons (i.e. it can be blocked by proxy). Use "Show reports" page in PayU administration to get more information about the requests.
 
+
+**Google Pay**:
+   With ``express_payments=True`` the provider can render a Google Pay button above the PayU card widget. The button uses the `Google Pay API <https://developers.google.com/pay/api/web/overview>`_ with PayU as the gateway (``gateway: payu``); the returned token is charged through the standard PayU order with an ``ap`` pay-by-link method. With ``recurring_payments=True`` the first Google Pay order is sent with ``recurring=FIRST`` so PayU issues a multi-use card token that is stored via ``Payment.set_renew_token()`` and used for later server-initiated renewals exactly like card payments.
+
+   NOTE: Google Pay needs to be enabled on your PayU POS. For the production environment you also need a merchant ID from the `Google Pay & Wallet Console <https://pay.google.com/business/console>`_.
+
+   Valid keys of the ``google_pay`` dict:
+
+   :merchant_id:            Google Pay merchant ID (required for the production environment)
+   :merchant_name:          (optional) merchant name shown in the Google Pay sheet
+   :environment:            (default: ``"TEST"`` if ``sandbox`` else ``"PRODUCTION"``) Google Pay environment
+   :gateway_merchant_id:    (default: ``pos_id``) gateway merchant ID passed to the Google Pay tokenization specification
+   :allowed_auth_methods:   (default: ``["PAN_ONLY", "CRYPTOGRAM_3DS"]``)
+   :allowed_card_networks:  (default: ``["MASTERCARD", "VISA"]``)
+
+Example::
+
+      PAYMENT_VARIANTS = {
+          'payu': ('payments_payu.provider.PayuProvider', {
+              # ...
+              'express_payments': True,
+              'google_pay': {
+                  'merchant_id': 'BCR2DN4T26O5PZZZ',
+                  'merchant_name': 'My shop',
+              },
+          }),
+      }
 
 **Recurring payments**:
    If recurring payments are enabled, the PayU card token needs to be stored in your application for usage in next payments. The next payments can be either initiated by user through (user will be prompted only for payment confirmation by the express form) or by server.
