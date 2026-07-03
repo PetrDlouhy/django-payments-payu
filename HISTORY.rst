@@ -2,8 +2,8 @@
 
 History
 -------
-unreleased
-**********
+2.2.0 (2026-07-03)
+******************
 * add optional Google Pay button to the express payment form (``google_pay``
   provider parameter). The Google Pay token is charged through a standard
   PayU order (pay-by-link method ``ap`` with base64 ``authorizationCode``);
