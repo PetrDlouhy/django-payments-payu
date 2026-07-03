@@ -10,6 +10,7 @@ import requests
 from django import forms
 from django.http.response import HttpResponse, HttpResponseRedirect
 from django.utils.html import format_html, format_html_join
+from django.utils.safestring import mark_safe
 from payments import FraudStatus, PaymentStatus, RedirectNeeded
 from payments.core import BasicProvider, get_base_url
 from payments.forms import PaymentForm
@@ -93,7 +94,10 @@ class HtmlOutputField(forms.HiddenInput):
         return super(HtmlOutputField, self).__init__(*args, **kwargs)
 
     def render(self, *args, **kwargs):
-        return self.html
+        # mark_safe: a plain str gets autoescaped when the widget is rendered
+        # in a template (visible as literal "<br/><strong>..." on Django 5.x).
+        # The html is built by this module from trusted, server-side values.
+        return mark_safe(self.html)
 
 
 class WidgetPaymentForm(PaymentForm):

@@ -2,6 +2,12 @@
 
 History
 -------
+unreleased
+**********
+* fix HtmlOutputField rendering its html autoescaped on Django 5.x - the
+  "This payment is already being processed" error form showed literal
+  "<br/><strong>..." markup to the user.
+
 2.1.1 (2026-05-07)
 ******************
 * fix create_order demoting an already CONFIRMED payment to ERROR when PayU
