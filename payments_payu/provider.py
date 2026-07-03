@@ -50,7 +50,7 @@ GOOGLE_PAY_ALLOWED_CARD_NETWORKS = ["MASTERCARD", "VISA"]
 # Rendered with string.Template ($config, $process_url) because the JS is full
 # of braces that format_html would treat as placeholders.
 GOOGLE_PAY_SCRIPT_TEMPLATE = Template("""
-<div id="google-pay-button"></div>
+<div id="google-pay-button" class="payu-google-pay-button"></div>
 <script>
 (function() {
     var cfg = $config;
@@ -78,7 +78,8 @@ GOOGLE_PAY_SCRIPT_TEMPLATE = Template("""
             if (!response.result) {
                 return;
             }
-            var button = client.createButton({onClick: function() {
+            var container = document.getElementById('google-pay-button');
+            var button = client.createButton({buttonSizeMode: 'fill', onClick: function() {
                 client.loadPaymentData({
                     apiVersion: 2,
                     apiVersionMinor: 0,
@@ -90,6 +91,8 @@ GOOGLE_PAY_SCRIPT_TEMPLATE = Template("""
                     },
                     merchantInfo: cfg.merchant_info
                 }).then(function(paymentData) {
+                    container.classList.add('payu-wallet-processing');
+                    document.body.classList.add('payu-wallet-processing');
                     var body = new URLSearchParams();
                     body.append('google_pay_token', paymentData.paymentMethodData.tokenizationData.token);
                     return fetch('$process_url', {
@@ -102,10 +105,12 @@ GOOGLE_PAY_SCRIPT_TEMPLATE = Template("""
                         window.location.href = url;
                     });
                 }).catch(function(err) {
+                    container.classList.remove('payu-wallet-processing');
+                    document.body.classList.remove('payu-wallet-processing');
                     console.log('Google Pay payment did not complete', err);
                 });
             }});
-            document.getElementById('google-pay-button').appendChild(button);
+            container.appendChild(button);
         });
     };
 })();
