@@ -71,7 +71,7 @@ Here are valid parameters for the provider:
 **Google Pay**:
    With ``express_payments=True`` the provider can render a Google Pay button above the PayU card widget. The button uses the `Google Pay API <https://developers.google.com/pay/api/web/overview>`_ with PayU as the gateway (``gateway: payu``); the returned token is charged through the standard PayU order with an ``ap`` pay-by-link method. With ``recurring_payments=True`` the first Google Pay order is sent with ``recurring=FIRST`` so PayU issues a multi-use card token that is stored via ``Payment.set_renew_token()`` and used for later server-initiated renewals exactly like card payments.
 
-   NOTE: Google Pay needs to be enabled on your PayU POS. For the production environment you also need a merchant ID from the `Google Pay & Wallet Console <https://pay.google.com/business/console>`_.
+   NOTE: Google Pay needs to be enabled on your PayU POS. For the production environment you also need a merchant ID from the `Google Pay & Wallet Console <https://pay.google.com/business/console>`_. If your site sends a Content-Security-Policy, allow the Google Pay script (``script-src https://pay.google.com``, frames from ``https://pay.google.com``).
 
    Valid keys of the ``google_pay`` dict:
 

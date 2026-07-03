@@ -424,7 +424,10 @@ class PayuProvider(BasicProvider):
             "merchant_info": merchant_info,
         }
         return GOOGLE_PAY_SCRIPT_TEMPLATE.substitute(
-            config=json.dumps(config),
+            # All config values come from provider settings, but escape "<"
+            # anyway so no value can ever break out of the <script> block
+            # (same hardening as Django's json_script).
+            config=json.dumps(config).replace("<", "\\u003c"),
             process_url=urljoin(get_base_url(), payment.get_process_url()),
         )
 
