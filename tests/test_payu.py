@@ -727,6 +727,26 @@ class TestPayuProvider(TestCase):
             self.assertIn("</script>", rendered_html)  # Test, that escaping works correctly
             self.assertIn("customer-language='cs'", rendered_html)
 
+    def test_payment_error_form_html_not_escaped(self):
+        """Test that the payment error form renders its html unescaped.
+
+        HtmlOutputField.render must return a safe string: a plain str gets
+        autoescaped when the form is rendered in a template on Django 5.x,
+        showing literal "<br/><strong>..." to the user.
+        """
+        from django.utils.safestring import SafeString
+
+        from payments_payu.provider import PaymentErrorForm
+
+        form = PaymentErrorForm()
+        rendered_widget = form.fields["script"].widget.render("script", None)
+        self.assertIsInstance(rendered_widget, SafeString)
+
+        template = Template("{{form.as_p}}")
+        rendered_html = template.render(Context({"form": form}))
+        self.assertIn("<strong>This payment is already being processed.", rendered_html)
+        self.assertNotIn("&lt;strong&gt;", rendered_html)
+
     def test_redirect_3ds_form(self):
         """Test redirection to 3DS page if requested by PayU"""
         self.set_up_provider(

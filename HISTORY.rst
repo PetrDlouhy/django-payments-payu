@@ -13,6 +13,9 @@ unreleased
 * create_order: don't overwrite the stored renew token when the order
   response echoes a pay method without card data (e.g. a wallet pay-by-link
   method), which is not a reusable card token.
+* fix HtmlOutputField rendering its html autoescaped on Django 5.x - the
+  "This payment is already being processed" error form showed literal
+  "<br/><strong>..." markup to the user.
 
 2.1.1 (2026-05-07)
 ******************

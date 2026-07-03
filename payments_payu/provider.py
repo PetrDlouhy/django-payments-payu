@@ -165,7 +165,10 @@ class HtmlOutputField(forms.HiddenInput):
         return super(HtmlOutputField, self).__init__(*args, **kwargs)
 
     def render(self, *args, **kwargs):
-        return self.html
+        # mark_safe: a plain str gets autoescaped when the widget is rendered
+        # in a template (visible as literal "<br/><strong>..." on Django 5.x).
+        # The html is built by this module from trusted, server-side values.
+        return mark_safe(self.html)
 
 
 class WidgetPaymentForm(PaymentForm):
