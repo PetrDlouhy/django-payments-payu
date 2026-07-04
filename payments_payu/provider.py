@@ -69,6 +69,12 @@ GOOGLE_PAY_SCRIPT_TEMPLATE = Template("""
         }
     };
     window.onGooglePayLoaded = function() {
+        var container = document.getElementById('google-pay-button');
+        if (!container || container.hasChildNodes()) {
+            // Already initialized (the form was re-rendered into the page and
+            // both the inline call and the script onload fired) - do nothing.
+            return;
+        }
         var client = new google.payments.api.PaymentsClient({environment: cfg.environment});
         client.isReadyToPay({
             apiVersion: 2,
@@ -78,8 +84,7 @@ GOOGLE_PAY_SCRIPT_TEMPLATE = Template("""
             if (!response.result) {
                 return;
             }
-            var container = document.getElementById('google-pay-button');
-            var button = client.createButton({buttonSizeMode: 'fill', onClick: function() {
+            var buttonOptions = {buttonSizeMode: 'fill', onClick: function() {
                 client.loadPaymentData({
                     apiVersion: 2,
                     apiVersionMinor: 0,
@@ -109,10 +114,18 @@ GOOGLE_PAY_SCRIPT_TEMPLATE = Template("""
                     document.body.classList.remove('payu-wallet-processing');
                     console.log('Google Pay payment did not complete', err);
                 });
-            }});
-            container.appendChild(button);
+            }};
+            if (cfg.button_radius !== null) {
+                buttonOptions.buttonRadius = cfg.button_radius;
+            }
+            container.appendChild(client.createButton(buttonOptions));
         });
     };
+    if (window.google && window.google.payments && window.google.payments.api) {
+        // pay.js is already loaded (the form was injected into an existing
+        // page) - the script tag below won't be re-evaluated, initialize now.
+        window.onGooglePayLoaded();
+    }
 })();
 </script>
 <script src="https://pay.google.com/gp/p/js/pay.js" async onload="onGooglePayLoaded()"></script>
@@ -422,6 +435,7 @@ class PayuProvider(BasicProvider):
             "total": str(payment.total.quantize(CENTS)),
             "currency": payment.currency,
             "merchant_info": merchant_info,
+            "button_radius": self.google_pay.get("button_radius"),
         }
         return GOOGLE_PAY_SCRIPT_TEMPLATE.substitute(
             # All config values come from provider settings, but escape "<"

@@ -81,6 +81,7 @@ Here are valid parameters for the provider:
    :gateway_merchant_id:    (default: ``pos_id``) gateway merchant ID passed to the Google Pay tokenization specification
    :allowed_auth_methods:   (default: ``["PAN_ONLY", "CRYPTOGRAM_3DS"]``)
    :allowed_card_networks:  (default: ``["MASTERCARD", "VISA"]``)
+   :button_radius:          (optional) corner radius in px passed to the Google Pay button (``buttonRadius``)
 
 Example::
 

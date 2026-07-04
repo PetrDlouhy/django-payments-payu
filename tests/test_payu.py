@@ -938,6 +938,34 @@ class TestPayuProvider(TestCase):
         self.assertIn('"currency": "USD"', html)
         self.assertIn("https://example.com/process_url/token", html)
 
+    def test_payu_widget_form_google_pay_button_radius(self):
+        """Test that a configured button radius reaches the Google Pay config"""
+        self.set_up_provider(
+            True,
+            True,
+            get_refund_description=lambda payment, amount: "test",
+            google_pay={"merchant_id": "test_merchant_id", "button_radius": 22},
+        )
+        self.payment.token = None
+        form = self.provider.get_form(payment=self.payment)
+        html = form.fields["script"].widget.render("a", "b")
+        self.assertIn('"button_radius": 22', html)
+
+    def test_payu_widget_form_google_pay_reinit_guards(self):
+        """Test the re-injection guards: skip double init, init without onload"""
+        self.set_up_provider(
+            True,
+            True,
+            get_refund_description=lambda payment, amount: "test",
+            google_pay={"merchant_id": "test_merchant_id"},
+        )
+        self.payment.token = None
+        form = self.provider.get_form(payment=self.payment)
+        html = form.fields["script"].widget.render("a", "b")
+        self.assertIn("container.hasChildNodes()", html)
+        self.assertIn("window.google && window.google.payments", html)
+        self.assertIn('"button_radius": null', html)
+
     def test_payu_widget_form_google_pay_sandbox(self):
         """Test that the Google Pay button uses TEST environment on sandbox"""
         self.set_up_provider(
