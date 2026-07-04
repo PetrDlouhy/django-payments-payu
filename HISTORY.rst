@@ -2,6 +2,16 @@
 
 History
 -------
+unreleased
+**********
+* survive malformed PayU error responses: an integer ``status``
+  (``{"status": 500}``) no longer crashes ``post_request`` with
+  ``TypeError``, a missing ``codeLiteral`` no longer crashes the error log
+  with ``KeyError``, and a non-JSON body (e.g. an HTML 502 page from a
+  proxy) raises ``PayuApiError`` instead of a raw ``JSONDecodeError``. The
+  payment now fails cleanly (``ERROR`` status + redirect to the failure
+  page) in the first two cases.
+
 2.2.0 (2026-07-03)
 ******************
 * add optional Google Pay button to the express payment form (``google_pay``
