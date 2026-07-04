@@ -2,8 +2,8 @@
 
 History
 -------
-unreleased
-**********
+2.3.0 (2026-07-04)
+******************
 * survive malformed PayU error responses: an integer ``status``
   (``{"status": 500}``) no longer crashes ``post_request`` with
   ``TypeError``, a missing ``codeLiteral`` no longer crashes the error log
