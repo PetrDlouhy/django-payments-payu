@@ -11,6 +11,10 @@ unreleased
   proxy) raises ``PayuApiError`` instead of a raw ``JSONDecodeError``. The
   payment now fails cleanly (``ERROR`` status + redirect to the failure
   page) in the first two cases.
+* Google Pay: re-initialization guards for hosts that inject the express
+  form dynamically (skip double init, initialize when pay.js is already
+  loaded), and an optional ``button_radius`` key in the ``google_pay``
+  config passed to the button as ``buttonRadius``.
 
 2.2.0 (2026-07-03)
 ******************
