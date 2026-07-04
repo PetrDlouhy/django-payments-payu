@@ -502,11 +502,21 @@ class PayuProvider(BasicProvider):
         for i in range(1, self.retry_count):
             kwargs["headers"] = self.get_token_headers()
             response = requests.post(url, *args, **kwargs)
-            response_dict = json.loads(response.text)
+            try:
+                response_dict = json.loads(response.text)
+            except ValueError as e:
+                # Gateway-level failures (e.g. an HTML 502 page from a proxy)
+                # are not JSON; surface them as the provider's own exception.
+                raise PayuApiError(
+                    f"Non-JSON response from PayU: HTTP {response.status_code}, "
+                    f"body: {response.text[:200]!r}"
+                ) from e
+            # On gateway errors "status" can be a plain integer HTTP code
+            # ('{"status": 500}') instead of the usual status dict.
+            response_status = response_dict.get("status")
             if (response_dict.get("error") == "invalid_token") or (
-                "status" in response_dict
-                and "statusCode" in response_dict["status"]
-                and response_dict["status"]["statusCode"] == "UNAUTHORIZED"
+                isinstance(response_status, dict)
+                and response_status.get("statusCode") == "UNAUTHORIZED"
             ):
                 try:
                     self.token = self.get_access_token(
@@ -625,11 +635,18 @@ class PayuProvider(BasicProvider):
             elif response_dict["status"]["statusCode"] == "WARNING_CONTINUE_3DS":
                 add_extra_data(payment, {"3ds_url": response_dict["redirectUri"]})
                 return response_dict["redirectUri"]
-        except KeyError:
+        except (KeyError, TypeError):
+            # TypeError: on gateway errors "status" is a plain integer HTTP
+            # code, so the ["statusCode"] subscript above fails like a
+            # missing key does.
             pass
 
-        if "status" in response_dict:
-            if response_dict["status"]["statusCode"] == "BUSINESS_ERROR":
+        response_status = response_dict.get("status")
+        if response_status is not None:
+            if (
+                isinstance(response_status, dict)
+                and response_status.get("statusCode") == "BUSINESS_ERROR"
+            ):
                 # Payment rejected by PayUs anti-fruad system
                 payment.change_fraud_status(FraudStatus.REJECT, message=response_dict)
             else:
@@ -653,12 +670,14 @@ class PayuProvider(BasicProvider):
         try:
             raise PayuApiError(response_dict)
         except PayuApiError:
+            # codeLiteral is not guaranteed (and "status" may be an integer
+            # on gateway errors) - never let the error log itself crash.
             logger.exception(
                 "PayU API error:"
                 + (
-                    f"{response_dict['status']['codeLiteral']}"
-                    if "status" in response_dict
-                    else ""
+                    response_status.get("codeLiteral", "")
+                    if isinstance(response_status, dict)
+                    else str(response_status or "")
                 )
             )
         return payment_processor.failureUrl

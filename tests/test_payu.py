@@ -601,6 +601,63 @@ class TestPayuProvider(TestCase):
             headers={"Content-Type": "application/x-www-form-urlencoded"},
         )
 
+    def test_redirect_payu_integer_status_error(self):
+        """PayU gateway-level failures answer with a plain integer status
+        ('{"status": 500}') instead of the usual status dict. That must fail
+        the payment gracefully (ERROR + redirect to the failure page), not
+        crash with TypeError: argument of type 'int' is not iterable."""
+        self.set_up_provider(
+            True, False, get_refund_description=lambda payment, amount: "test"
+        )
+        with patch("requests.post") as mocked_post:
+            post = MagicMock()
+            post.text = '{"status": 500, "error_description": "Internal Server Error"}'
+            post.status_code = 500
+            mocked_post.return_value = post
+            with self.assertRaises(RedirectNeeded) as context:
+                self.provider.get_form(payment=self.payment)
+            self.assertEqual(context.exception.args[0], "http://cancel.com")
+            self.assertEqual(self.payment.status, PaymentStatus.ERROR)
+
+    def test_redirect_payu_error_without_code_literal(self):
+        """Error statuses are not guaranteed to carry codeLiteral; logging the
+        failure must not die with KeyError inside the except block."""
+        self.set_up_provider(
+            True, False, get_refund_description=lambda payment, amount: "test"
+        )
+        with patch("requests.post") as mocked_post:
+            post = MagicMock()
+            post.text = json.dumps(
+                {
+                    "status": {
+                        "statusCode": "ERROR_VALUE_INVALID",
+                        "statusDesc": "Order fields are invalid",
+                    }
+                }
+            )
+            post.status_code = 400
+            mocked_post.return_value = post
+            with self.assertRaises(RedirectNeeded) as context:
+                self.provider.get_form(payment=self.payment)
+            self.assertEqual(context.exception.args[0], "http://cancel.com")
+            self.assertEqual(self.payment.status, PaymentStatus.ERROR)
+
+    def test_post_request_non_json_response_raises_payu_api_error(self):
+        """A gateway HTML error page (502 from a proxy) is not JSON; surface
+        it as PayuApiError instead of a raw JSONDecodeError."""
+        self.set_up_provider(
+            True, False, get_refund_description=lambda payment, amount: "test"
+        )
+        with patch("requests.post") as mocked_post:
+            post = MagicMock()
+            post.text = "<html><body>502 Bad Gateway</body></html>"
+            post.status_code = 502
+            mocked_post.return_value = post
+            with self.assertRaisesRegex(
+                PayuApiError, r"Non-JSON response from PayU: HTTP 502"
+            ):
+                self.provider.get_form(payment=self.payment)
+
     def test_get_access_token_trusted_merchant(self):
         self.set_up_provider(
             True, False, get_refund_description=lambda payment, amount: "test"
