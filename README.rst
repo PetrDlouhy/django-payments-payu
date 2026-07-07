@@ -97,6 +97,42 @@ Example::
           }),
       }
 
+**Apple Pay**:
+   With ``express_payments=True`` the provider can render an Apple Pay button above the PayU card widget. The button appears only in Safari on a device that can make Apple Pay payments. The returned token is charged through the standard PayU order with a ``jp`` pay-by-link method; recurring works like Google Pay (first order ``recurring=FIRST`` -> multi-use token stored via ``Payment.set_renew_token()`` -> server-initiated renewals).
+
+   Apple Pay for the Web additionally requires **merchant validation**: when the payment sheet opens, the browser calls ``onvalidatemerchant`` and the provider POSTs to Apple using your **Merchant Identity certificate** to obtain a merchant session. This means, unlike Google Pay, you must have that certificate available to the server.
+
+   Setup checklist:
+
+   * Enable Apple Pay on your PayU POS and send PayU your **Payment Processing** certificate (PayU decrypts the token).
+   * Create an Apple **Merchant ID** and a **Merchant Identity** certificate; make it available to the app.
+   * Register and verify every domain that shows the button (serve ``/.well-known/apple-developer-merchantid-domain-association.txt``).
+   * If your site sends a Content-Security-Policy, allow the Apple Pay JS API (it is a browser API, no external script, but the button uses the ``-apple-pay-button`` appearance).
+
+   Valid keys of the ``apple_pay`` dict:
+
+   :merchant_id:            Apple Merchant ID, e.g. ``merchant.com.example`` (required)
+   :merchant_name:          merchant/display name shown in the sheet (defaults to ``shop_name``)
+   :country_code:           (default: ``"US"``) merchant country code
+   :certificate:            the Merchant Identity certificate, passed as-is to ``requests``'s ``cert=`` for merchant validation (a path to a combined PEM, or a ``(cert, key)`` tuple of paths)
+   :supported_networks:     (default: ``["masterCard", "visa"]``)
+   :merchant_capabilities:  (default: ``["supports3DS"]``)
+
+Example::
+
+      PAYMENT_VARIANTS = {
+          'payu': ('payments_payu.provider.PayuProvider', {
+              # ...
+              'express_payments': True,
+              'apple_pay': {
+                  'merchant_id': 'merchant.com.example',
+                  'merchant_name': 'My shop',
+                  'country_code': 'CZ',
+                  'certificate': '/path/to/merchant_identity.pem',
+              },
+          }),
+      }
+
 **Recurring payments**:
    If recurring payments are enabled, the PayU card token needs to be stored in your application for usage in next payments. The next payments can be either initiated by user through (user will be prompted only for payment confirmation by the express form) or by server.
    To enable recurring payments, you will need to set additional things:

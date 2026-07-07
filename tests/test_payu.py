@@ -1225,6 +1225,143 @@ class TestPayuProvider(TestCase):
             self.provider.process_data(payment=self.payment, request=mocked_request)
         self.assertIsNone(self.payment.token)
 
+    def test_payu_widget_form_apple_pay(self):
+        """Test that the Apple Pay button is rendered in the express form"""
+        self.set_up_provider(
+            True,
+            True,
+            get_refund_description=lambda payment, amount: "test",
+            apple_pay={
+                "merchant_id": "merchant.com.test",
+                "merchant_name": "Test shop",
+                "country_code": "CZ",
+            },
+        )
+        self.payment.token = None
+        form = self.provider.get_form(payment=self.payment)
+        html = form.fields["script"].widget.render("a", "b")
+        self.assertIn("payu-widget", html)
+        self.assertIn("apple-pay-button", html)
+        self.assertIn("ApplePaySession", html)
+        self.assertIn('"country_code": "CZ"', html)
+        self.assertIn('"label": "Test shop"', html)
+        self.assertIn('"total": "220.00"', html)
+        self.assertIn('"currency": "USD"', html)
+        self.assertIn("https://example.com/process_url/token", html)
+
+    def test_payu_widget_form_apple_pay_not_on_cvv(self):
+        """Test that the Apple Pay button is not rendered on the CVV form"""
+        self.set_up_provider(
+            True,
+            True,
+            get_refund_description=lambda payment, amount: "test",
+            apple_pay={"merchant_id": "merchant.com.test"},
+        )
+        self.payment.token = None
+        self.payment.extra_data = json.dumps({"cvv_url": "http://cvv.url"})
+        form = self.provider.get_form(payment=self.payment)
+        html = form.fields["script"].widget.render("a", "b")
+        self.assertIn("payu-widget", html)
+        self.assertNotIn("apple-pay-button", html)
+
+    def test_apple_pay_merchant_validation(self):
+        """Test that merchant validation POSTs to Apple with the identity cert"""
+        self.set_up_provider(
+            True,
+            True,
+            get_refund_description=lambda payment, amount: "test",
+            apple_pay={
+                "merchant_id": "merchant.com.test",
+                "merchant_name": "Test shop",
+                "certificate": ("/tmp/cert.pem", "/tmp/key.pem"),
+            },
+        )
+        mocked_request = MagicMock()
+        mocked_request.POST = {
+            "apple_pay_validation_url": "https://apple.example/validate"
+        }
+        mocked_request.META = {}
+        with patch("requests.post") as mocked_post:
+            post = MagicMock()
+            post.json.return_value = {"merchantSessionIdentifier": "abc"}
+            mocked_post.return_value = post
+            response = self.provider.process_data(
+                payment=self.payment, request=mocked_request
+            )
+            self.assertEqual(response.status_code, 200)
+            self.assertEqual(response["Content-Type"], "application/json")
+            self.assertEqual(
+                json.loads(response.content), {"merchantSessionIdentifier": "abc"}
+            )
+            mocked_post.assert_called_once_with(
+                "https://apple.example/validate",
+                json={
+                    "merchantIdentifier": "merchant.com.test",
+                    "displayName": "Test shop",
+                    "initiative": "web",
+                    "initiativeContext": "example.com",
+                },
+                cert=("/tmp/cert.pem", "/tmp/key.pem"),
+            )
+
+    def test_process_apple_pay(self):
+        """Test processing an Apple Pay token callback with recurring FIRST"""
+        self.set_up_provider(
+            True,
+            True,
+            get_refund_description=lambda payment, amount: "test",
+            apple_pay={"merchant_id": "merchant.com.test"},
+        )
+        self.payment.token = None
+        apple_pay_token = '{"paymentData": {"data": "encrypted"}}'
+        mocked_request = MagicMock()
+        mocked_request.POST = {"apple_pay_token": apple_pay_token}
+        mocked_request.META = {}
+        with patch("requests.post") as mocked_post:
+            post = MagicMock()
+            post.text = '{"status": {"statusCode": "SUCCESS"}, "orderId": 123}'
+            post.status_code = 200
+            mocked_post.return_value = post
+            response = self.provider.process_data(
+                payment=self.payment, request=mocked_request
+            )
+            self.assertEqual(response.status_code, 200)
+            self.assertEqual(response.content, b"http://foo_succ.com")
+            sent_data = json.loads(mocked_post.call_args[1]["data"])
+            self.assertEqual(sent_data["recurring"], "FIRST")
+            self.assertEqual(
+                sent_data["payMethods"]["payMethod"],
+                {
+                    "type": "PBL",
+                    "value": "jp",
+                    "authorizationCode": base64.b64encode(
+                        apple_pay_token.encode("utf-8")
+                    ).decode("ascii"),
+                },
+            )
+
+    def test_process_apple_pay_non_recurring(self):
+        """Test that a one-off Apple Pay order is sent without recurring"""
+        self.set_up_provider(
+            False,
+            True,
+            get_refund_description=lambda payment, amount: "test",
+            apple_pay={"merchant_id": "merchant.com.test"},
+        )
+        self.payment.token = None
+        mocked_request = MagicMock()
+        mocked_request.POST = {"apple_pay_token": '{"paymentData": {}}'}
+        mocked_request.META = {}
+        with patch("requests.post") as mocked_post:
+            post = MagicMock()
+            post.text = '{"status": {"statusCode": "SUCCESS"}, "orderId": 123}'
+            post.status_code = 200
+            mocked_post.return_value = post
+            self.provider.process_data(payment=self.payment, request=mocked_request)
+            sent_data = json.loads(mocked_post.call_args[1]["data"])
+            self.assertNotIn("recurring", sent_data)
+            self.assertEqual(sent_data["payMethods"]["payMethod"]["value"], "jp")
+
     def test_process_notification(self):
         """Test processing PayU notification"""
         self.set_up_provider(
