@@ -134,6 +134,91 @@ GOOGLE_PAY_SCRIPT_TEMPLATE = Template("""
 <script src="https://pay.google.com/gp/p/js/pay.js" async onload="onGooglePayLoaded()"></script>
 """)
 
+APPLE_PAY_SUPPORTED_NETWORKS = ["masterCard", "visa"]
+APPLE_PAY_MERCHANT_CAPABILITIES = ["supports3DS"]
+
+# Apple Pay for the Web. The button appears only in Safari on a device that can
+# make payments. onvalidatemerchant and onpaymentauthorized both POST back to
+# the payment's process URL (dispatched by field name), so no extra endpoints
+# are needed. $config is server-built JSON; $process_url is the process URL.
+APPLE_PAY_SCRIPT_TEMPLATE = Template("""
+<style>
+.payu-apple-pay-button {
+    display: none;
+    -webkit-appearance: -apple-pay-button;
+    -apple-pay-button-type: plain;
+    -apple-pay-button-style: black;
+    width: 100%;
+    min-height: 40px;
+    cursor: pointer;
+}
+</style>
+<div id="apple-pay-button" class="payu-apple-pay-button" lang="en"></div>
+<script>
+(function() {
+    var cfg = $config;
+    function initApplePay() {
+        var button = document.getElementById('apple-pay-button');
+        if (!button || button.dataset.payuInit) {
+            return;
+        }
+        if (!window.ApplePaySession || !ApplePaySession.canMakePayments()) {
+            return;
+        }
+        button.dataset.payuInit = '1';
+        button.style.display = 'block';
+        button.addEventListener('click', function() {
+            var request = {
+                countryCode: cfg.country_code,
+                currencyCode: cfg.currency,
+                supportedNetworks: cfg.supported_networks,
+                merchantCapabilities: cfg.merchant_capabilities,
+                total: {label: cfg.label, amount: cfg.total}
+            };
+            var session = new ApplePaySession(3, request);
+            session.onvalidatemerchant = function(event) {
+                var body = new URLSearchParams();
+                body.append('apple_pay_validation_url', event.validationURL);
+                fetch('$process_url', {
+                    method: 'POST',
+                    headers: {'Content-Type': 'application/x-www-form-urlencoded'},
+                    body: body.toString()
+                }).then(function(response) {
+                    return response.json();
+                }).then(function(merchantSession) {
+                    session.completeMerchantValidation(merchantSession);
+                }).catch(function(err) {
+                    console.log('Apple Pay merchant validation failed', err);
+                    session.abort();
+                });
+            };
+            session.onpaymentauthorized = function(event) {
+                document.body.classList.add('payu-wallet-processing');
+                var body = new URLSearchParams();
+                body.append('apple_pay_token', JSON.stringify(event.payment.token));
+                fetch('$process_url', {
+                    method: 'POST',
+                    headers: {'Content-Type': 'application/x-www-form-urlencoded'},
+                    body: body.toString()
+                }).then(function(response) {
+                    return response.text();
+                }).then(function(url) {
+                    session.completePayment(ApplePaySession.STATUS_SUCCESS);
+                    window.location.href = url;
+                }).catch(function(err) {
+                    document.body.classList.remove('payu-wallet-processing');
+                    session.completePayment(ApplePaySession.STATUS_FAILURE);
+                    console.log('Apple Pay payment did not complete', err);
+                });
+            };
+            session.begin();
+        });
+    }
+    initApplePay();
+})();
+</script>
+""")
+
 
 def add_extra_data(payment, new_extra_data):
     payment.refresh_from_db(fields=["extra_data"])
@@ -197,15 +282,22 @@ class WidgetPaymentForm(PaymentForm):
     script = forms.CharField(label="Script")
 
     def __init__(
-        self, payu_base_url, script_params={}, google_pay_html="", *args, **kwargs
+        self,
+        payu_base_url,
+        script_params={},
+        google_pay_html="",
+        apple_pay_html="",
+        *args,
+        **kwargs,
     ):
         ret = super(WidgetPaymentForm, self).__init__(*args, **kwargs)
         # mark_safe: plain-str concatenation would demote format_html's
-        # SafeString and get the whole widget HTML escaped when rendered.
-        # google_pay_html is server-built (no user input, see
-        # PayuProvider.get_google_pay_html).
+        # SafeString and get the whole widget HTML escaped when rendered. The
+        # wallet HTML is server-built (no user input, see
+        # PayuProvider.get_google_pay_html / get_apple_pay_html).
         form_html = mark_safe(
             google_pay_html
+            + apple_pay_html
             + format_html(
                 "<script "
                 f"src='{payu_base_url}front/widget/js/payu-bootstrap.js' "
@@ -322,6 +414,12 @@ class PayuProvider(BasicProvider):
         # A dict with optional keys: merchant_id, merchant_name, environment,
         # gateway_merchant_id, allowed_auth_methods, allowed_card_networks.
         self.google_pay = kwargs.pop("google_pay", None)
+        # Apple Pay express button, only valid with express_payments=True. A
+        # dict with keys: merchant_id, merchant_name (display name), country_code,
+        # certificate (anything requests accepts as cert= for the merchant
+        # identity certificate used in Apple merchant validation), and optional
+        # supported_networks / merchant_capabilities.
+        self.apple_pay = kwargs.pop("apple_pay", None)
         self.retry_count = 5
 
         self.pos_id = kwargs.pop("pos_id")
@@ -409,6 +507,7 @@ class PayuProvider(BasicProvider):
             data=data,
             script_params=payu_data,
             google_pay_html=self.get_google_pay_html(payment) if not cvv_url else "",
+            apple_pay_html=self.get_apple_pay_html(payment) if not cvv_url else "",
             provider=self,
             payment=payment,
         )
@@ -448,6 +547,78 @@ class PayuProvider(BasicProvider):
             config=json.dumps(config).replace("<", "\\u003c"),
             process_url=urljoin(get_base_url(), payment.get_process_url()),
         )
+
+    def get_apple_pay_html(self, payment):
+        """Render the Apple Pay button + JS for the express payment form."""
+        if not self.apple_pay:
+            return ""
+        config = {
+            "country_code": self.apple_pay.get("country_code", "US"),
+            "currency": payment.currency,
+            "total": str(payment.total.quantize(CENTS)),
+            "label": self.apple_pay.get("merchant_name") or self.payu_shop_name,
+            "supported_networks": self.apple_pay.get(
+                "supported_networks", APPLE_PAY_SUPPORTED_NETWORKS
+            ),
+            "merchant_capabilities": self.apple_pay.get(
+                "merchant_capabilities", APPLE_PAY_MERCHANT_CAPABILITIES
+            ),
+        }
+        return APPLE_PAY_SCRIPT_TEMPLATE.substitute(
+            config=json.dumps(config).replace("<", "\\u003c"),
+            process_url=urljoin(get_base_url(), payment.get_process_url()),
+        )
+
+    def validate_apple_pay_merchant(self, validation_url):
+        """Exchange Apple's validationURL for a merchant session.
+
+        Apple Pay for the Web requires the merchant server to authenticate to
+        Apple with the Merchant Identity certificate before the payment sheet
+        opens. Returns the merchant session dict to hand back to the browser.
+        """
+        domain = urljoin(get_base_url(), "/").split("://", 1)[-1].strip("/")
+        payload = {
+            "merchantIdentifier": self.apple_pay["merchant_id"],
+            "displayName": self.apple_pay.get("merchant_name") or self.payu_shop_name,
+            "initiative": "web",
+            "initiativeContext": domain,
+        }
+        response = requests.post(
+            validation_url,
+            json=payload,
+            cert=self.apple_pay.get("certificate"),
+        )
+        return response.json()
+
+    def process_apple_pay_validation(self, payment, validation_url):
+        return HttpResponse(
+            json.dumps(self.validate_apple_pay_merchant(validation_url)),
+            content_type="application/json",
+            status=200,
+        )
+
+    def process_apple_pay_callback(self, payment, apple_pay_token):
+        """Charge an order with an Apple Pay token from the express form.
+
+        PayU expects the raw Apple Pay token base64-encoded in the
+        authorizationCode of a "jp" pay-by-link method. As with Google Pay, the
+        first payment of a recurring plan is sent with recurring=FIRST so PayU
+        issues a multi-use card token for later renewals.
+        """
+        processor = self.get_processor(payment)
+        if self.card_on_file:
+            processor.cardOnFile = "FIRST"
+        elif self.recurring_payments:
+            processor.recurring = "FIRST"
+        processor.set_paymethod(
+            method_type="PBL",
+            value="jp",
+            authorization_code=base64.b64encode(apple_pay_token.encode("utf-8")).decode(
+                "ascii"
+            ),
+        )
+        data = self.create_order(payment, processor)
+        return HttpResponse(data, status=200)
 
     def get_processor(self, payment):
         order = payment.get_purchased_items()
@@ -856,6 +1027,14 @@ class PayuProvider(BasicProvider):
         elif "google_pay_token" in request.POST:
             return self.process_google_pay_callback(
                 payment, request.POST["google_pay_token"]
+            )
+        elif "apple_pay_validation_url" in request.POST:
+            return self.process_apple_pay_validation(
+                payment, request.POST["apple_pay_validation_url"]
+            )
+        elif "apple_pay_token" in request.POST:
+            return self.process_apple_pay_callback(
+                payment, request.POST["apple_pay_token"]
             )
         elif renew_token and self.recurring_payments:
             return self.process_widget_callback(
