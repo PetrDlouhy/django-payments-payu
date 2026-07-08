@@ -189,7 +189,9 @@ class Payment(Mock):
         if args or kwargs:
             raise NotImplementedError(f"arguments not supported yet: {args}, {kwargs}")
         payment_from_db = Payment.objects.get(pk=self.pk)
-        refresh_fields = self._meta.get_fields(include_parents=True, include_hidden=True)
+        refresh_fields = self._meta.get_fields(
+            include_parents=True, include_hidden=True
+        )
         if fields is not None:
             refresh_fields = [field for field in refresh_fields if field.name in fields]
         for field in refresh_fields:
@@ -780,8 +782,13 @@ class TestPayuProvider(TestCase):
             self.assertIn("payu-widget", rendered_html)
             self.assertIn("https://example.com/process_url/token", rendered_html)
             self.assertIn("cvv-url='foo_url'", rendered_html)
-            self.assertIn("shop-name='&lt;script&gt; alert(&#x27;foo&#x27;)&lt;/script&gt;'", rendered_html)
-            self.assertIn("</script>", rendered_html)  # Test, that escaping works correctly
+            self.assertIn(
+                "shop-name='&lt;script&gt; alert(&#x27;foo&#x27;)&lt;/script&gt;'",
+                rendered_html,
+            )
+            self.assertIn(
+                "</script>", rendered_html
+            )  # Test, that escaping works correctly
             self.assertIn("customer-language='cs'", rendered_html)
 
     def test_payment_error_form_html_not_escaped(self):
@@ -951,6 +958,23 @@ class TestPayuProvider(TestCase):
         html = form.fields["script"].widget.render("a", "b")
         self.assertIn('"button_radius": 22', html)
 
+    def test_payu_widget_form_google_pay_button_color(self):
+        """Test that a configured button color reaches the Google Pay config
+
+        Google's brand guidelines require the white button on dark backgrounds.
+        """
+        self.set_up_provider(
+            True,
+            True,
+            get_refund_description=lambda payment, amount: "test",
+            google_pay={"merchant_id": "test_merchant_id", "button_color": "white"},
+        )
+        self.payment.token = None
+        form = self.provider.get_form(payment=self.payment)
+        html = form.fields["script"].widget.render("a", "b")
+        self.assertIn('"button_color": "white"', html)
+        self.assertIn("buttonOptions.buttonColor = cfg.button_color", html)
+
     def test_payu_widget_form_google_pay_reinit_guards(self):
         """Test the re-injection guards: skip double init, init without onload"""
         self.set_up_provider(
@@ -965,6 +989,7 @@ class TestPayuProvider(TestCase):
         self.assertIn("container.hasChildNodes()", html)
         self.assertIn("window.google && window.google.payments", html)
         self.assertIn('"button_radius": null', html)
+        self.assertIn('"button_color": null', html)
 
     def test_payu_widget_form_google_pay_sandbox(self):
         """Test that the Google Pay button uses TEST environment on sandbox"""

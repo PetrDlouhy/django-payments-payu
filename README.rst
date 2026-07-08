@@ -82,6 +82,7 @@ Here are valid parameters for the provider:
    :allowed_auth_methods:   (default: ``["PAN_ONLY", "CRYPTOGRAM_3DS"]``)
    :allowed_card_networks:  (default: ``["MASTERCARD", "VISA"]``)
    :button_radius:          (optional) corner radius in px passed to the Google Pay button (``buttonRadius``)
+   :button_color:           (optional) ``"black"``, ``"white"`` or ``"default"`` (``buttonColor``); use ``"white"`` on dark backgrounds per Google's brand guidelines
 
 Example::
 

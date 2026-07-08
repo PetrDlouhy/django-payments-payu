@@ -118,6 +118,9 @@ GOOGLE_PAY_SCRIPT_TEMPLATE = Template("""
             if (cfg.button_radius !== null) {
                 buttonOptions.buttonRadius = cfg.button_radius;
             }
+            if (cfg.button_color !== null) {
+                buttonOptions.buttonColor = cfg.button_color;
+            }
             container.appendChild(client.createButton(buttonOptions));
         });
     };
@@ -436,6 +439,7 @@ class PayuProvider(BasicProvider):
             "currency": payment.currency,
             "merchant_info": merchant_info,
             "button_radius": self.google_pay.get("button_radius"),
+            "button_color": self.google_pay.get("button_color"),
         }
         return GOOGLE_PAY_SCRIPT_TEMPLATE.substitute(
             # All config values come from provider settings, but escape "<"

@@ -2,6 +2,13 @@
 
 History
 -------
+unreleased
+**********
+* Google Pay: add an optional ``button_color`` key in the ``google_pay``
+  config passed to the button as ``buttonColor`` (``"black"`` / ``"white"``
+  / ``"default"``). Google's brand guidelines require the white button on
+  dark backgrounds.
+
 2.3.0 (2026-07-04)
 ******************
 * survive malformed PayU error responses: an integer ``status``
