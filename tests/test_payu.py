@@ -1362,6 +1362,69 @@ class TestPayuProvider(TestCase):
             self.assertNotIn("recurring", sent_data)
             self.assertEqual(sent_data["payMethods"]["payMethod"]["value"], "jp")
 
+    def test_process_apple_pay_card_on_file(self):
+        """With card_on_file, an Apple Pay order uses cardOnFile=FIRST, not recurring."""
+        self.set_up_provider(
+            True,
+            True,
+            get_refund_description=lambda payment, amount: "test",
+            apple_pay={"merchant_id": "merchant.com.test"},
+            card_on_file=True,
+        )
+        self.payment.token = None
+        mocked_request = MagicMock()
+        mocked_request.POST = {"apple_pay_token": '{"paymentData": {}}'}
+        mocked_request.META = {}
+        with patch("requests.post") as mocked_post:
+            post = MagicMock()
+            post.text = '{"status": {"statusCode": "SUCCESS"}, "orderId": 123}'
+            post.status_code = 200
+            mocked_post.return_value = post
+            self.provider.process_data(payment=self.payment, request=mocked_request)
+            sent_data = json.loads(mocked_post.call_args[1]["data"])
+            self.assertEqual(sent_data["cardOnFile"], "FIRST")
+            self.assertNotIn("recurring", sent_data)
+            self.assertEqual(sent_data["payMethods"]["payMethod"]["value"], "jp")
+
+    def test_process_google_pay_card_on_file(self):
+        """With card_on_file, a Google Pay order uses cardOnFile=FIRST, not recurring."""
+        self.set_up_provider(
+            True,
+            True,
+            get_refund_description=lambda payment, amount: "test",
+            google_pay={"merchant_id": "test_merchant_id"},
+            card_on_file=True,
+        )
+        self.payment.token = None
+        mocked_request = MagicMock()
+        mocked_request.POST = {"google_pay_token": '{"signature": "foo"}'}
+        mocked_request.META = {}
+        with patch("requests.post") as mocked_post:
+            post = MagicMock()
+            post.text = '{"status": {"statusCode": "SUCCESS"}, "orderId": 123}'
+            post.status_code = 200
+            mocked_post.return_value = post
+            self.provider.process_data(payment=self.payment, request=mocked_request)
+            sent_data = json.loads(mocked_post.call_args[1]["data"])
+            self.assertEqual(sent_data["cardOnFile"], "FIRST")
+            self.assertNotIn("recurring", sent_data)
+            self.assertEqual(sent_data["payMethods"]["payMethod"]["value"], "ap")
+
+    def test_payu_widget_form_google_pay_without_merchant_id(self):
+        """Google Pay in TEST mode needs no merchant_id; merchantId is then omitted."""
+        self.set_up_provider(
+            True,
+            True,
+            get_refund_description=lambda payment, amount: "test",
+            google_pay={"merchant_name": "Test shop"},
+        )
+        self.payment.token = None
+        form = self.provider.get_form(payment=self.payment)
+        html = form.fields["script"].widget.render("a", "b")
+        self.assertIn("google-pay-button", html)
+        self.assertIn('"merchantName": "Test shop"', html)
+        self.assertNotIn("merchantId", html)
+
     def test_process_notification(self):
         """Test processing PayU notification"""
         self.set_up_provider(
