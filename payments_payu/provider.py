@@ -826,12 +826,22 @@ class PayuProvider(BasicProvider):
                         payment.status == PaymentStatus.CONFIRMED
                         and payment.status != status
                     ):
+                        # A CONFIRMED payment must not be demoted by a later
+                        # notification. PayU can deliver duplicate/out-of-order
+                        # callbacks (e.g. a stale CANCELED arriving after
+                        # COMPLETED); applying one would clobber a real capture.
+                        # Refunds are handled by the "refund" branch above, not
+                        # here, so any non-confirmed status for an already
+                        # confirmed payment is spurious. Ack it (200) so PayU
+                        # stops retrying, but keep the CONFIRMED state.
                         logger.error(
-                            "Suspicious status change of payment %s: %s -> %s",
+                            "Suspicious status change of payment %s: %s -> %s; "
+                            "keeping CONFIRMED",
                             payment.id,
                             payment.status,
                             status,
                         )
+                        return HttpResponse("ok", status=200)
                     payment.change_status(status)
                     return HttpResponse("ok", status=200)
         return HttpResponse("not ok", status=500)
