@@ -1248,6 +1248,9 @@ class TestPayuProvider(TestCase):
         self.assertIn('"total": "220.00"', html)
         self.assertIn('"currency": "USD"', html)
         self.assertIn("https://example.com/process_url/token", html)
+        # PayU decrypts token.paymentData (its data/signature/header/version),
+        # not the whole ApplePayPaymentToken wrapper.
+        self.assertIn("JSON.stringify(event.payment.token.paymentData)", html)
 
     def test_payu_widget_form_apple_pay_not_on_cvv(self):
         """Test that the Apple Pay button is not rendered on the CVV form"""

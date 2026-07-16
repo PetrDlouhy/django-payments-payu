@@ -195,7 +195,7 @@ APPLE_PAY_SCRIPT_TEMPLATE = Template("""
             session.onpaymentauthorized = function(event) {
                 document.body.classList.add('payu-wallet-processing');
                 var body = new URLSearchParams();
-                body.append('apple_pay_token', JSON.stringify(event.payment.token));
+                body.append('apple_pay_token', JSON.stringify(event.payment.token.paymentData));
                 fetch('$process_url', {
                     method: 'POST',
                     headers: {'Content-Type': 'application/x-www-form-urlencoded'},

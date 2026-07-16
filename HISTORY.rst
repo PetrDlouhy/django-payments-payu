@@ -20,8 +20,10 @@ Unreleased
   / ``"default"``). Google's brand guidelines require the white button on
   dark backgrounds.
 * add optional Apple Pay button to the express payment form (``apple_pay``
-  provider parameter). The Apple Pay token is charged through a standard PayU
-  order (pay-by-link method ``jp`` with base64 ``authorizationCode``); with
+  provider parameter). The Apple Pay ``token.paymentData`` (which carries the
+  ``data``/``signature``/``header``/``version`` PayU decrypts) is charged
+  through a standard PayU order (pay-by-link method ``jp`` with base64
+  ``authorizationCode``); with
   ``recurring_payments=True`` the first order is sent with ``recurring=FIRST``
   and the returned multi-use card token is stored for renewals. Merchant
   validation (``onvalidatemerchant``) is handled by the provider using the
