@@ -2,6 +2,17 @@
 
 History
 -------
+Unreleased
+**********
+* ``process_notification``: never demote a ``CONFIRMED`` payment. PayU can
+  deliver duplicate/out-of-order notifications (e.g. a stale ``CANCELED``
+  after ``COMPLETED``); applying one used to clobber a real capture, moving
+  the payment to ``REJECTED``/``ERROR`` while it had actually been paid. The
+  spurious callback is now acked (``200 ok``, so PayU stops retrying) and the
+  ``CONFIRMED`` status is kept. Legitimate refunds are unaffected (they are
+  handled by the dedicated ``refund`` branch). Mirrors the existing
+  ``create_order`` guard added in 2.1.2.
+
 2.4.0 (2026-07-15)
 ******************
 * Google Pay: add an optional ``button_color`` key in the ``google_pay``
