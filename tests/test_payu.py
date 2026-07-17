@@ -4,11 +4,11 @@ import base64
 import contextlib
 import json
 import warnings
-from django.template import Context, Template
 from copy import deepcopy
 from decimal import Decimal
 from unittest import TestCase
 
+from django.template import Context, Template
 from mock import MagicMock, Mock, patch
 from payments import FraudStatus, PaymentStatus, PurchasedItem, RedirectNeeded
 
@@ -26,6 +26,29 @@ PROCESS_DATA = {
     "expiration_1": "2020",
     "cvv2": "1234",
 }
+
+# Realistic wallet token shapes - the provider validates these fields before
+# forwarding the token to PayU.
+APPLE_PAY_TOKEN = json.dumps(
+    {
+        "version": "EC_v1",
+        "data": "encrypted-payment-data",
+        "signature": "test-signature",
+        "header": {
+            "publicKeyHash": "test-public-key-hash",
+            "ephemeralPublicKey": "test-ephemeral-key",
+            "transactionId": "test-transaction-id",
+        },
+    }
+)
+GOOGLE_PAY_TOKEN = json.dumps(
+    {
+        "protocolVersion": "ECv2",
+        "signature": "test-signature",
+        "intermediateSigningKey": {"signedKey": "key", "signatures": ["sig"]},
+        "signedMessage": "test-signed-message",
+    }
+)
 
 
 class JSONEquals(str):
@@ -1029,7 +1052,7 @@ class TestPayuProvider(TestCase):
             google_pay={"merchant_id": "test_merchant_id"},
         )
         self.payment.token = None
-        google_pay_token = '{"signature": "foo", "signedMessage": "bar"}'
+        google_pay_token = GOOGLE_PAY_TOKEN
         mocked_request = MagicMock()
         mocked_request.POST = {"google_pay_token": google_pay_token}
         mocked_request.META = {}
@@ -1102,7 +1125,7 @@ class TestPayuProvider(TestCase):
             google_pay={"merchant_id": "test_merchant_id"},
         )
         self.payment.token = None
-        google_pay_token = '{"signature": "foo"}'
+        google_pay_token = GOOGLE_PAY_TOKEN
         mocked_request = MagicMock()
         mocked_request.POST = {"google_pay_token": google_pay_token}
         mocked_request.META = {}
@@ -1138,7 +1161,7 @@ class TestPayuProvider(TestCase):
         )
         self.payment.token = None
         mocked_request = MagicMock()
-        mocked_request.POST = {"google_pay_token": '{"signature": "foo"}'}
+        mocked_request.POST = {"google_pay_token": GOOGLE_PAY_TOKEN}
         mocked_request.META = {}
         with patch("requests.post") as mocked_post:
             post = MagicMock()
@@ -1170,7 +1193,7 @@ class TestPayuProvider(TestCase):
         )
         self.payment.token = None
         mocked_request = MagicMock()
-        mocked_request.POST = {"google_pay_token": '{"signature": "foo"}'}
+        mocked_request.POST = {"google_pay_token": GOOGLE_PAY_TOKEN}
         mocked_request.META = {}
         with patch("requests.post") as mocked_post:
             post = MagicMock()
@@ -1209,7 +1232,7 @@ class TestPayuProvider(TestCase):
         )
         self.payment.token = None
         mocked_request = MagicMock()
-        mocked_request.POST = {"google_pay_token": '{"signature": "foo"}'}
+        mocked_request.POST = {"google_pay_token": GOOGLE_PAY_TOKEN}
         mocked_request.META = {}
         with patch("requests.post") as mocked_post:
             post = MagicMock()
@@ -1316,7 +1339,7 @@ class TestPayuProvider(TestCase):
             apple_pay={"merchant_id": "merchant.com.test"},
         )
         self.payment.token = None
-        apple_pay_token = '{"paymentData": {"data": "encrypted"}}'
+        apple_pay_token = APPLE_PAY_TOKEN
         mocked_request = MagicMock()
         mocked_request.POST = {"apple_pay_token": apple_pay_token}
         mocked_request.META = {}
@@ -1353,7 +1376,7 @@ class TestPayuProvider(TestCase):
         )
         self.payment.token = None
         mocked_request = MagicMock()
-        mocked_request.POST = {"apple_pay_token": '{"paymentData": {}}'}
+        mocked_request.POST = {"apple_pay_token": APPLE_PAY_TOKEN}
         mocked_request.META = {}
         with patch("requests.post") as mocked_post:
             post = MagicMock()
@@ -1376,7 +1399,7 @@ class TestPayuProvider(TestCase):
         )
         self.payment.token = None
         mocked_request = MagicMock()
-        mocked_request.POST = {"apple_pay_token": '{"paymentData": {}}'}
+        mocked_request.POST = {"apple_pay_token": APPLE_PAY_TOKEN}
         mocked_request.META = {}
         with patch("requests.post") as mocked_post:
             post = MagicMock()
@@ -1389,6 +1412,121 @@ class TestPayuProvider(TestCase):
             self.assertNotIn("recurring", sent_data)
             self.assertEqual(sent_data["payMethods"]["payMethod"]["value"], "jp")
 
+    def test_process_apple_pay_malformed_token(self):
+        """A malformed Apple Pay token fails fast without calling PayU.
+
+        A token missing its cryptographic parts (e.g. the whole
+        ApplePayPaymentToken wrapper sent instead of its paymentData) would
+        only fail after the PayU round trip with a vague APPLE_PAY_CLIENT_ERROR.
+        """
+        self.set_up_provider(
+            True,
+            True,
+            get_refund_description=lambda payment, amount: "test",
+            apple_pay={"merchant_id": "merchant.com.test"},
+        )
+        self.payment.token = None
+        mocked_request = MagicMock()
+        mocked_request.POST = {"apple_pay_token": '{"paymentData": {"data": "x"}}'}
+        mocked_request.META = {}
+        with patch("requests.post") as mocked_post:
+            with self.assertLogs("payments_payu.provider", level="ERROR") as logs:
+                response = self.provider.process_data(
+                    payment=self.payment, request=mocked_request
+                )
+        mocked_post.assert_not_called()
+        self.assertEqual(self.payment.status, PaymentStatus.ERROR)
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.content, b"http://cancel.com")
+        self.assertIn("version, data, signature, header", logs.output[0])
+        self.assertEqual(
+            json.loads(self.payment.extra_data)["status"],
+            {
+                "statusCode": "ERROR_WALLET_TOKEN_MALFORMED",
+                "wallet": "Apple Pay",
+                "missing": ["version", "data", "signature", "header"],
+            },
+        )
+
+    def test_process_google_pay_non_json_token(self):
+        """A Google Pay token that is not JSON fails fast without calling PayU."""
+        self.set_up_provider(
+            True,
+            True,
+            get_refund_description=lambda payment, amount: "test",
+            google_pay={"merchant_id": "test_merchant_id"},
+        )
+        self.payment.token = None
+        mocked_request = MagicMock()
+        mocked_request.POST = {"google_pay_token": "garbage"}
+        mocked_request.META = {}
+        with patch("requests.post") as mocked_post:
+            with self.assertLogs("payments_payu.provider", level="ERROR") as logs:
+                response = self.provider.process_data(
+                    payment=self.payment, request=mocked_request
+                )
+        mocked_post.assert_not_called()
+        self.assertEqual(self.payment.status, PaymentStatus.ERROR)
+        self.assertEqual(response.content, b"http://cancel.com")
+        self.assertIn("protocolVersion, signature, signedMessage", logs.output[0])
+
+    def test_process_apple_pay_logs_token_metadata(self):
+        """The Apple Pay publicKeyHash is logged for certificate diagnostics."""
+        self.set_up_provider(
+            True,
+            True,
+            get_refund_description=lambda payment, amount: "test",
+            apple_pay={"merchant_id": "merchant.com.test"},
+        )
+        self.payment.token = None
+        mocked_request = MagicMock()
+        mocked_request.POST = {"apple_pay_token": APPLE_PAY_TOKEN}
+        mocked_request.META = {}
+        with patch("requests.post") as mocked_post:
+            post = MagicMock()
+            post.text = '{"status": {"statusCode": "SUCCESS"}, "orderId": 123}'
+            post.status_code = 200
+            mocked_post.return_value = post
+            with self.assertLogs("payments_payu.provider", level="INFO") as logs:
+                self.provider.process_data(payment=self.payment, request=mocked_request)
+        self.assertTrue(
+            any(
+                "Apple Pay token for payment" in line
+                and "version=EC_v1" in line
+                and "publicKeyHash=test-public-key-hash" in line
+                for line in logs.output
+            ),
+            logs.output,
+        )
+
+    def test_process_google_pay_logs_token_metadata(self):
+        """The Google Pay protocolVersion is logged for diagnostics."""
+        self.set_up_provider(
+            True,
+            True,
+            get_refund_description=lambda payment, amount: "test",
+            google_pay={"merchant_id": "test_merchant_id"},
+        )
+        self.payment.token = None
+        mocked_request = MagicMock()
+        mocked_request.POST = {"google_pay_token": GOOGLE_PAY_TOKEN}
+        mocked_request.META = {}
+        with patch("requests.post") as mocked_post:
+            post = MagicMock()
+            post.text = '{"status": {"statusCode": "SUCCESS"}, "orderId": 123}'
+            post.status_code = 200
+            mocked_post.return_value = post
+            with self.assertLogs("payments_payu.provider", level="INFO") as logs:
+                self.provider.process_data(payment=self.payment, request=mocked_request)
+        self.assertTrue(
+            any(
+                "Google Pay token for payment" in line
+                and "protocolVersion=ECv2" in line
+                for line in logs.output
+            ),
+            logs.output,
+        )
+
     def test_process_google_pay_card_on_file(self):
         """With card_on_file, a Google Pay order uses cardOnFile=FIRST, not recurring."""
         self.set_up_provider(
@@ -1400,7 +1538,7 @@ class TestPayuProvider(TestCase):
         )
         self.payment.token = None
         mocked_request = MagicMock()
-        mocked_request.POST = {"google_pay_token": '{"signature": "foo"}'}
+        mocked_request.POST = {"google_pay_token": GOOGLE_PAY_TOKEN}
         mocked_request.META = {}
         with patch("requests.post") as mocked_post:
             post = MagicMock()

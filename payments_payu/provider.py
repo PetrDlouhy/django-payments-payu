@@ -597,6 +597,45 @@ class PayuProvider(BasicProvider):
             status=200,
         )
 
+    def _parse_wallet_token(self, payment, wallet, token_str, required_fields):
+        """Parse a wallet token and fail fast when it is malformed.
+
+        A token missing its cryptographic parts would otherwise only fail
+        after the PayU round trip with a vague error (e.g.
+        APPLE_PAY_CLIENT_ERROR "signature is empty"). Returns the parsed
+        token dict, or None after erroring the payment.
+        """
+        try:
+            token = json.loads(token_str)
+        except json.JSONDecodeError:
+            token = None
+        missing = (
+            [field for field in required_fields if not token.get(field)]
+            if isinstance(token, dict)
+            else list(required_fields)
+        )
+        if missing:
+            logger.error(
+                "%s token for payment %s is malformed (missing: %s), "
+                "failing the payment without calling PayU",
+                wallet,
+                payment.pk,
+                ", ".join(missing),
+            )
+            add_extra_data(
+                payment,
+                {
+                    "status": {
+                        "statusCode": "ERROR_WALLET_TOKEN_MALFORMED",
+                        "wallet": wallet,
+                        "missing": missing,
+                    }
+                },
+            )
+            payment.change_status(PaymentStatus.ERROR)
+            return None
+        return token
+
     def process_apple_pay_callback(self, payment, apple_pay_token):
         """Charge an order with an Apple Pay token from the express form.
 
@@ -605,6 +644,29 @@ class PayuProvider(BasicProvider):
         first payment of a recurring plan is sent with recurring=FIRST so PayU
         issues a multi-use card token for later renewals.
         """
+        token = self._parse_wallet_token(
+            payment,
+            "Apple Pay",
+            apple_pay_token,
+            ("version", "data", "signature", "header"),
+        )
+        if token is None:
+            return HttpResponse(
+                urljoin(get_base_url(), payment.get_failure_url()), status=200
+            )
+        # The publicKeyHash identifies the Apple Pay payment-processing
+        # certificate the token was encrypted for - the first thing to compare
+        # when PayU reports the certificate as unknown to it.
+        logger.info(
+            "Apple Pay token for payment %s: version=%s publicKeyHash=%s",
+            payment.pk,
+            token["version"],
+            (
+                token["header"].get("publicKeyHash")
+                if isinstance(token["header"], dict)
+                else None
+            ),
+        )
         processor = self.get_processor(payment)
         if self.card_on_file:
             processor.cardOnFile = "FIRST"
@@ -672,6 +734,21 @@ class PayuProvider(BasicProvider):
         a recurring plan is sent with recurring=FIRST so PayU issues a
         multi-use card token for later renewals.
         """
+        token = self._parse_wallet_token(
+            payment,
+            "Google Pay",
+            google_pay_token,
+            ("protocolVersion", "signature", "signedMessage"),
+        )
+        if token is None:
+            return HttpResponse(
+                urljoin(get_base_url(), payment.get_failure_url()), status=200
+            )
+        logger.info(
+            "Google Pay token for payment %s: protocolVersion=%s",
+            payment.pk,
+            token["protocolVersion"],
+        )
         processor = self.get_processor(payment)
         if self.card_on_file:
             processor.cardOnFile = "FIRST"
