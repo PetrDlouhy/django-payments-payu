@@ -12,13 +12,13 @@ Unreleased
   ``CONFIRMED`` status is kept. Legitimate refunds are unaffected (they are
   handled by the dedicated ``refund`` branch). Mirrors the existing
   ``create_order`` guard added in 2.1.2.
-
-2.4.0 (2026-07-15)
-******************
-* Google Pay: add an optional ``button_color`` key in the ``google_pay``
-  config passed to the button as ``buttonColor`` (``"black"`` / ``"white"``
-  / ``"default"``). Google's brand guidelines require the white button on
-  dark backgrounds.
+* wallet tokens (Google Pay / Apple Pay) are validated before creating the
+  PayU order: a token missing its cryptographic parts now fails the payment
+  immediately with ``ERROR_WALLET_TOKEN_MALFORMED`` in ``extra_data``
+  instead of PayU's vague ``APPLE_PAY_CLIENT_ERROR``, and each accepted
+  token logs its non-sensitive metadata (the Apple Pay ``publicKeyHash``,
+  which identifies the payment-processing certificate the token was
+  encrypted for, and the Google Pay ``protocolVersion``) for diagnostics.
 * add optional Apple Pay button to the express payment form (``apple_pay``
   provider parameter). The Apple Pay ``token.paymentData`` (which carries the
   ``data``/``signature``/``header``/``version`` PayU decrypts) is charged
@@ -28,6 +28,13 @@ Unreleased
   and the returned multi-use card token is stored for renewals. Merchant
   validation (``onvalidatemerchant``) is handled by the provider using the
   configured Merchant Identity certificate.
+
+2.4.0 (2026-07-15)
+******************
+* Google Pay: add an optional ``button_color`` key in the ``google_pay``
+  config passed to the button as ``buttonColor`` (``"black"`` / ``"white"``
+  / ``"default"``). Google's brand guidelines require the white button on
+  dark backgrounds.
 
 2.3.0 (2026-07-04)
 ******************
