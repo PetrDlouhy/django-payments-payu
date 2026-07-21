@@ -2,8 +2,8 @@
 
 History
 -------
-Unreleased
-**********
+2.5.0 (2026-07-21)
+******************
 * replace the stray debug ``print`` in the refund notification path and the
   bare ``Exception("Refund was not finelized")`` with a proper
   ``PayuApiError("Refund was not finalized")``.
