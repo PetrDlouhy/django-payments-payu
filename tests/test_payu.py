@@ -1,8 +1,8 @@
 from __future__ import unicode_literals
 
 import base64
-import hashlib
 import contextlib
+import hashlib
 import json
 import warnings
 from copy import deepcopy
@@ -13,7 +13,14 @@ from django.template import Context, Template
 from mock import MagicMock, Mock, patch
 from payments import FraudStatus, PaymentStatus, PurchasedItem, RedirectNeeded
 
-from payments_payu.provider import PayuApiError, PayuProvider
+from payments_payu.provider import (
+    PaymentErrorForm,
+    PaymentProcessor,
+    PayuApiError,
+    PayuProvider,
+    add_extra_data,
+    add_new_status,
+)
 
 SECRET = "123abc"
 SECOND_KEY = "123abc"
@@ -259,6 +266,16 @@ class TestPayuProvider(TestCase):
     def setUp(self):
         Payment.objects.delete()
         self.payment = Payment.objects.create()
+
+    def assert_no_package_warnings(self, caught_warnings):
+        """Fail on warnings from this package or its tests only.
+
+        Third-party warnings leak into catch_warnings(record=True) - e.g.
+        mock emits a DeprecationWarning on Python 3.14 - and are not this
+        package's concern.
+        """
+        relevant = [w for w in caught_warnings if "site-packages" not in w.filename]
+        self.assertFalse([str(w.message) for w in relevant])
 
     def set_up_provider(self, recurring, express, **kwargs):
         with patch("requests.post") as mocked_post:
@@ -1817,7 +1834,7 @@ class TestPayuProvider(TestCase):
             "HTTP_OPENPAYU_SIGNATURE": "signature=0af4d2830ed40ec2cea5249a172bf6d9;algorithm=MD5",
         }
         mocked_request.status_code = 200
-        with self.assertRaisesRegex(Exception, "Refund was not finelized"):
+        with self.assertRaisesRegex(PayuApiError, "Refund was not finalized"):
             self.provider.process_data(payment=self.payment, request=mocked_request)
 
     def test_process_notification_total_amount(self):
@@ -2302,7 +2319,7 @@ class TestPayuProvider(TestCase):
             json.loads(self.payment.extra_data)["refund_responses"],
             [payment_extra_data_refund_response_previous, refund_request_response_body],
         )
-        self.assertFalse(caught_warnings)
+        self.assert_no_package_warnings(caught_warnings)
 
     def test_refund_no_amount(self):
         with warnings.catch_warnings(record=True) as caught_warnings:
@@ -2365,7 +2382,7 @@ class TestPayuProvider(TestCase):
             json.loads(self.payment.extra_data)["refund_responses"],
             [refund_request_response_body],
         )
-        self.assertFalse(caught_warnings)
+        self.assert_no_package_warnings(caught_warnings)
 
     def test_refund_no_get_refund_ext_id(self):
         with warnings.catch_warnings(record=True) as caught_warnings:
@@ -2430,7 +2447,7 @@ class TestPayuProvider(TestCase):
             json.loads(self.payment.extra_data)["refund_responses"],
             [refund_request_response_body],
         )
-        self.assertFalse(caught_warnings)
+        self.assert_no_package_warnings(caught_warnings)
 
     def test_refund_no_ext_id(self):
         with warnings.catch_warnings(record=True) as caught_warnings:
@@ -2492,7 +2509,7 @@ class TestPayuProvider(TestCase):
             json.loads(self.payment.extra_data)["refund_responses"],
             [refund_request_response_body],
         )
-        self.assertFalse(caught_warnings)
+        self.assert_no_package_warnings(caught_warnings)
 
     def test_refund_no_ext_id_twice(self):
         with warnings.catch_warnings(record=True) as caught_warnings:
@@ -2556,7 +2573,7 @@ class TestPayuProvider(TestCase):
             json.loads(self.payment.extra_data)["refund_responses"],
             [refund_request_response_body, refund_request_response_body],
         )
-        self.assertFalse(caught_warnings)
+        self.assert_no_package_warnings(caught_warnings)
 
     def test_refund_pending(self):
         with warnings.catch_warnings(record=True) as caught_warnings:
@@ -2619,7 +2636,7 @@ class TestPayuProvider(TestCase):
             json.loads(self.payment.extra_data)["refund_responses"],
             [refund_request_response_body],
         )
-        self.assertFalse(caught_warnings)
+        self.assert_no_package_warnings(caught_warnings)
 
     def test_refund_canceled(self):
         with warnings.catch_warnings(record=True) as caught_warnings:
@@ -2684,7 +2701,7 @@ class TestPayuProvider(TestCase):
             json.loads(self.payment.extra_data)["refund_responses"],
             [refund_request_response_body],
         )
-        self.assertFalse(caught_warnings)
+        self.assert_no_package_warnings(caught_warnings)
 
     def test_refund_error(self):
         with warnings.catch_warnings(record=True) as caught_warnings:
@@ -2745,7 +2762,7 @@ class TestPayuProvider(TestCase):
             json.loads(self.payment.extra_data)["refund_responses"],
             [refund_request_response_body],
         )
-        self.assertFalse(caught_warnings)
+        self.assert_no_package_warnings(caught_warnings)
 
     def test_refund_no_get_refund_description(self):
         with warnings.catch_warnings(record=True) as caught_warnings:
@@ -2776,12 +2793,274 @@ class TestPayuProvider(TestCase):
         self.assertFalse(
             json.loads(self.payment.extra_data).get("refund_responses", [])
         )
-        self.assertEqual(len(caught_warnings), 1)
-        self.assertTrue(issubclass(caught_warnings[0].category, DeprecationWarning))
+        relevant_warnings = [
+            w for w in caught_warnings if "site-packages" not in w.filename
+        ]
+        self.assertEqual(len(relevant_warnings), 1)
+        self.assertTrue(issubclass(relevant_warnings[0].category, DeprecationWarning))
         self.assertEqual(
-            str(caught_warnings[0].message),
+            str(relevant_warnings[0].message),
             "A default value of get_refund_description is deprecated. Set it to a callable instead.",
         )
+
+    def _set_up_confirmed_payment_for_refund(self):
+        self.set_up_provider(
+            True, True, get_refund_description=lambda payment, amount: "test"
+        )
+        self.payment.transaction_id = "1234"
+        self.payment.captured_amount = Decimal(210)
+        self.payment.change_status(PaymentStatus.CONFIRMED)
+        self.payment.save()
+
+    def _refund_with_response(self, response_body):
+        with patch("requests.post") as mocked_post:
+            post = MagicMock()
+            post.text = json.dumps(response_body)
+            post.status_code = 200
+            mocked_post.return_value = post
+            return self.provider.refund(self.payment)
+
+    def test_refund_response_without_status(self):
+        """A refund response without a status dict raises PayuApiError."""
+        self._set_up_confirmed_payment_for_refund()
+        with self.assertRaisesRegex(PayuApiError, "invalid response to refund"):
+            self._refund_with_response({})
+
+    def test_refund_response_without_refund_id(self):
+        """A SUCCESS refund response without refundId raises PayuApiError."""
+        self._set_up_confirmed_payment_for_refund()
+        with self.assertRaisesRegex(PayuApiError, "invalid response to refund"):
+            self._refund_with_response({"status": {"statusCode": "SUCCESS"}})
+
+    def test_refund_response_with_incomplete_refund(self):
+        """A refund response missing amount/currency raises PayuApiError."""
+        self._set_up_confirmed_payment_for_refund()
+        with self.assertRaisesRegex(PayuApiError, "invalid response to refund 5000"):
+            self._refund_with_response(
+                {"status": {"statusCode": "SUCCESS"}, "refund": {"refundId": "5000"}}
+            )
+
+    def test_refund_response_with_unexpected_refund_status(self):
+        """A refund reported in an unknown status raises PayuApiError."""
+        self._set_up_confirmed_payment_for_refund()
+        with self.assertRaisesRegex(PayuApiError, "invalid status of refund 5000"):
+            self._refund_with_response(
+                {
+                    "orderId": "1234",
+                    "status": {"statusCode": "SUCCESS"},
+                    "refund": {
+                        "refundId": "5000",
+                        "status": "WAITING",
+                        "currencyCode": "USD",
+                        "amount": "1000",
+                    },
+                }
+            )
+
+    def test_post_request_gives_up_after_token_retries(self):
+        """post_request stops retrying when PayU keeps rejecting the token."""
+        self.set_up_provider(
+            True, True, get_refund_description=lambda payment, amount: "test"
+        )
+        with patch("requests.post") as mocked_post:
+            post = MagicMock()
+            post.text = '{"error": "invalid_token"}'
+            post.status_code = 401
+            mocked_post.return_value = post
+            with patch.object(self.provider, "get_access_token", return_value="tok"):
+                with self.assertRaisesRegex(
+                    PayuApiError, "Unable to regain authorization token"
+                ):
+                    self.provider.post_request("http://payu.example/api")
+
+    def test_get_access_token_non_json_response(self):
+        """A non-JSON body from the auth endpoint raises PayuApiError."""
+        self.set_up_provider(
+            True, True, get_refund_description=lambda payment, amount: "test"
+        )
+        with patch("requests.post") as mocked_post:
+            post = MagicMock()
+            post.text = "<html>502 Bad Gateway</html>"
+            post.status_code = 502
+            mocked_post.return_value = post
+            with self.assertRaises(PayuApiError):
+                self.provider.get_access_token(POS_ID, SECRET)
+
+    def test_get_form_redirects_to_pending_3ds(self):
+        """A payment with a stored 3ds_url redirects there instead of a form."""
+        self.set_up_provider(
+            True, True, get_refund_description=lambda payment, amount: "test"
+        )
+        self.payment.extra_data = json.dumps({"3ds_url": "http://3ds.example"})
+        self.payment.save()
+        with self.assertRaises(RedirectNeeded) as cm:
+            self.provider.get_form(self.payment, data={"some": "post-data"})
+        self.assertEqual(str(cm.exception.args[0]), "http://3ds.example")
+
+    def test_get_form_error_form_when_not_waiting(self):
+        """A payment past WAITING gets the error form, not the widget."""
+        self.set_up_provider(
+            True, True, get_refund_description=lambda payment, amount: "test"
+        )
+        self.payment.extra_data = ""
+        self.payment.status = PaymentStatus.CONFIRMED
+        form = self.provider.get_form(self.payment)
+        self.assertIsInstance(form, PaymentErrorForm)
+
+    def test_extra_data_helpers_with_empty_extra_data(self):
+        """add_extra_data/add_new_status start from an empty extra_data."""
+        self.payment.extra_data = ""
+        self.payment.save()
+        add_new_status(self.payment, {"statusCode": "TEST"})
+        add_new_status(self.payment, {"statusCode": "TEST2"})
+        self.assertEqual(
+            json.loads(self.payment.extra_data)["statuses"],
+            [{"statusCode": "TEST"}, {"statusCode": "TEST2"}],
+        )
+        self.payment.extra_data = ""
+        self.payment.save()
+        add_extra_data(self.payment, {"foo": "bar"})
+        self.assertEqual(json.loads(self.payment.extra_data), {"foo": "bar"})
+
+    def test_process_data_unrecognized_request(self):
+        """A POST without any known field is answered with a 500."""
+        self.set_up_provider(
+            True, True, get_refund_description=lambda payment, amount: "test"
+        )
+        self.payment.token = None
+        mocked_request = MagicMock()
+        mocked_request.POST = {"unrelated": "field"}
+        mocked_request.META = {}
+        response = self.provider.process_data(
+            payment=self.payment, request=mocked_request
+        )
+        self.assertEqual(response.status_code, 500)
+        self.assertIn(b"request not recognized", response.content)
+
+    def test_process_notification_refund_exceeding_captured_is_logged(self):
+        """A FINALIZED refund larger than captured_amount logs an error."""
+        self.set_up_provider(
+            True, True, get_refund_description=lambda payment, amount: "test"
+        )
+        self.payment.captured_amount = Decimal(210)
+        self.payment.change_status(PaymentStatus.CONFIRMED)
+        self.payment.save()
+        mocked_request = MagicMock()
+        mocked_request.body = json.dumps(
+            {
+                "order": {"status": "COMPLETED"},
+                "refund": {
+                    "amount": "999900",
+                    "currencyCode": "USD",
+                    "status": "FINALIZED",
+                    "reasonDescription": "over-refund",
+                },
+            }
+        ).encode("utf8")
+        signature = hashlib.md5(
+            mocked_request.body + SECOND_KEY.encode("utf8")
+        ).hexdigest()
+        mocked_request.META = {
+            "CONTENT_TYPE": "application/json",
+            "HTTP_OPENPAYU_SIGNATURE": "signature={};algorithm=MD5".format(signature),
+        }
+        mocked_request.status_code = 200
+        with self.assertLogs("payments_payu.provider", level="ERROR") as logs:
+            ret_val = self.provider.process_data(
+                payment=self.payment, request=mocked_request
+            )
+        self.assertEqual(ret_val.content, b"ok")
+        self.assertIn("greater than the payment's captured_amount", logs.output[0])
+
+    def test_payment_processor_serializes_validity_time(self):
+        """An explicitly set validityTime ends up in the order json."""
+        self.set_up_provider(
+            True, True, get_refund_description=lambda payment, amount: "test"
+        )
+        processor = self.provider.get_processor(self.payment)
+        processor.pos_id = POS_ID
+        processor.validityTime = 3600
+        self.assertEqual(processor.as_json()["validityTime"], 3600)
+
+    def test_process_widget_without_recurring_or_express(self):
+        """A plain one-off widget order sends neither recurring nor payMethods."""
+        self.set_up_provider(
+            False, False, get_refund_description=lambda payment, amount: "test"
+        )
+        with patch("requests.post") as mocked_post:
+            post = MagicMock()
+            post.text = '{"status": {"statusCode": "SUCCESS"}, "orderId": 123}'
+            post.status_code = 200
+            mocked_post.return_value = post
+            self.provider.process_widget(self.payment, "TOKEN")
+            sent_data = json.loads(mocked_post.call_args[1]["data"])
+        self.assertNotIn("recurring", sent_data)
+        self.assertNotIn("payMethods", sent_data)
+
+    def test_get_form_widget_without_recurring(self):
+        """A non-recurring provider renders the widget without recurring-payment."""
+        self.set_up_provider(
+            False, True, get_refund_description=lambda payment, amount: "test"
+        )
+        self.payment.token = None
+        self.payment.extra_data = ""
+        form = self.provider.get_form(payment=self.payment)
+        self.assertEqual(form.__class__.__name__, "WidgetPaymentForm")
+        rendered = form.fields["script"].widget.render("a", "b")
+        self.assertNotIn("recurring-payment", rendered)
+
+    def test_payment_processor_minimal_json(self):
+        """as_json works without buyer/continueUrl/validityTime/paymethods."""
+        processor = PaymentProcessor(
+            order=iter([]),
+            notify_url="http://notify.example",
+            currency="USD",
+            description="test",
+            customer_ip="127.0.0.1",
+            total=Decimal(10),
+            tax=Decimal(0),
+        )
+        processor.pos_id = POS_ID
+        processor.external_id = "ext-1"
+        json_dict = processor.as_json()
+        self.assertNotIn("buyer", json_dict)
+        self.assertNotIn("continueUrl", json_dict)
+        self.assertNotIn("validityTime", json_dict)
+        self.assertNotIn("payMethods", json_dict)
+
+    def test_process_notification_unsupported_algorithm(self):
+        """A notification signed with a non-MD5 algorithm is answered 500."""
+        self.set_up_provider(
+            True, True, get_refund_description=lambda payment, amount: "test"
+        )
+        mocked_request = MagicMock()
+        mocked_request.body = json.dumps({"order": {"status": "COMPLETED"}}).encode(
+            "utf8"
+        )
+        mocked_request.META = {
+            "CONTENT_TYPE": "application/json",
+            "HTTP_OPENPAYU_SIGNATURE": "signature=abc;algorithm=SHA256",
+        }
+        response = self.provider.process_data(
+            payment=self.payment, request=mocked_request
+        )
+        self.assertEqual(response.status_code, 500)
+        self.assertEqual(response.content, b"not ok")
+
+    def test_payment_processor_setters_ignore_second_call(self):
+        """set_paymethod/set_buyer_data keep the first value on repeat calls."""
+        self.set_up_provider(
+            True, True, get_refund_description=lambda payment, amount: "test"
+        )
+        processor = self.provider.get_processor(self.payment)
+        processor.set_paymethod(value="jp", method_type="PBL")
+        processor.set_paymethod(value="other", method_type="CARD_TOKEN")
+        self.assertEqual(
+            processor.paymethods["payMethod"], {"type": "PBL", "value": "jp"}
+        )
+        first_buyer = dict(processor.buyer)
+        processor.set_buyer_data("Other", "Person", "other@example.com", None, "en")
+        self.assertEqual(processor.buyer, first_buyer)
 
     @contextlib.contextmanager
     def _patch_refund(

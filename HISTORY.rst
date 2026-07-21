@@ -4,6 +4,12 @@ History
 -------
 Unreleased
 **********
+* replace the stray debug ``print`` in the refund notification path and the
+  bare ``Exception("Refund was not finelized")`` with a proper
+  ``PayuApiError("Refund was not finalized")``.
+* test suite: 100% line and branch coverage of the provider, and third-party
+  warnings (e.g. mock's DeprecationWarning on Python 3.14) no longer break
+  the no-warnings assertions.
 * ``process_notification``: never demote a ``CONFIRMED`` payment. PayU can
   deliver duplicate/out-of-order notifications (e.g. a stale ``CANCELED``
   after ``COMPLETED``); applying one used to clobber a real capture, moving
