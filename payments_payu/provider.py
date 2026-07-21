@@ -636,37 +636,38 @@ class PayuProvider(BasicProvider):
             return None
         return token
 
-    def process_apple_pay_callback(self, payment, apple_pay_token):
-        """Charge an order with an Apple Pay token from the express form.
-
-        PayU expects the raw Apple Pay token base64-encoded in the
-        authorizationCode of a "jp" pay-by-link method. As with Google Pay, the
-        first payment of a recurring plan is sent with recurring=FIRST so PayU
-        issues a multi-use card token for later renewals.
-        """
-        token = self._parse_wallet_token(
-            payment,
-            "Apple Pay",
-            apple_pay_token,
-            ("version", "data", "signature", "header"),
+    @staticmethod
+    def _apple_pay_token_metadata(token):
+        # The publicKeyHash identifies the Apple Pay payment-processing
+        # certificate the token was encrypted for - the first thing to compare
+        # when PayU reports the certificate as unknown to it.
+        header = token["header"]
+        public_key_hash = (
+            header.get("publicKeyHash") if isinstance(header, dict) else None
         )
+        return "version={} publicKeyHash={}".format(token["version"], public_key_hash)
+
+    @staticmethod
+    def _google_pay_token_metadata(token):
+        return "protocolVersion={}".format(token["protocolVersion"])
+
+    def _process_wallet_callback(
+        self, payment, wallet, token_str, required_fields, pbl_value, metadata
+    ):
+        """Validate a wallet token, log its metadata and charge it as an order.
+
+        PayU expects the raw wallet token base64-encoded in the
+        authorizationCode of a pay-by-link method ("jp" for Apple Pay, "ap"
+        for Google Pay). The first payment of a recurring plan is sent with
+        recurring=FIRST (or cardOnFile=FIRST) so PayU issues a multi-use card
+        token for later renewals.
+        """
+        token = self._parse_wallet_token(payment, wallet, token_str, required_fields)
         if token is None:
             return HttpResponse(
                 urljoin(get_base_url(), payment.get_failure_url()), status=200
             )
-        # The publicKeyHash identifies the Apple Pay payment-processing
-        # certificate the token was encrypted for - the first thing to compare
-        # when PayU reports the certificate as unknown to it.
-        logger.info(
-            "Apple Pay token for payment %s: version=%s publicKeyHash=%s",
-            payment.pk,
-            token["version"],
-            (
-                token["header"].get("publicKeyHash")
-                if isinstance(token["header"], dict)
-                else None
-            ),
-        )
+        logger.info("%s token for payment %s: %s", wallet, payment.pk, metadata(token))
         processor = self.get_processor(payment)
         if self.card_on_file:
             processor.cardOnFile = "FIRST"
@@ -674,13 +675,23 @@ class PayuProvider(BasicProvider):
             processor.recurring = "FIRST"
         processor.set_paymethod(
             method_type="PBL",
-            value="jp",
-            authorization_code=base64.b64encode(apple_pay_token.encode("utf-8")).decode(
+            value=pbl_value,
+            authorization_code=base64.b64encode(token_str.encode("utf-8")).decode(
                 "ascii"
             ),
         )
         data = self.create_order(payment, processor)
         return HttpResponse(data, status=200)
+
+    def process_apple_pay_callback(self, payment, apple_pay_token):
+        return self._process_wallet_callback(
+            payment,
+            wallet="Apple Pay",
+            token_str=apple_pay_token,
+            required_fields=("version", "data", "signature", "header"),
+            pbl_value="jp",
+            metadata=self._apple_pay_token_metadata,
+        )
 
     def get_processor(self, payment):
         order = payment.get_purchased_items()
@@ -727,42 +738,14 @@ class PayuProvider(BasicProvider):
         return HttpResponse(data, status=200)
 
     def process_google_pay_callback(self, payment, google_pay_token):
-        """Charge an order with a Google Pay token from the express form.
-
-        PayU expects the raw Google Pay token base64-encoded in the
-        authorizationCode of an "ap" pay-by-link method. The first payment of
-        a recurring plan is sent with recurring=FIRST so PayU issues a
-        multi-use card token for later renewals.
-        """
-        token = self._parse_wallet_token(
+        return self._process_wallet_callback(
             payment,
-            "Google Pay",
-            google_pay_token,
-            ("protocolVersion", "signature", "signedMessage"),
+            wallet="Google Pay",
+            token_str=google_pay_token,
+            required_fields=("protocolVersion", "signature", "signedMessage"),
+            pbl_value="ap",
+            metadata=self._google_pay_token_metadata,
         )
-        if token is None:
-            return HttpResponse(
-                urljoin(get_base_url(), payment.get_failure_url()), status=200
-            )
-        logger.info(
-            "Google Pay token for payment %s: protocolVersion=%s",
-            payment.pk,
-            token["protocolVersion"],
-        )
-        processor = self.get_processor(payment)
-        if self.card_on_file:
-            processor.cardOnFile = "FIRST"
-        elif self.recurring_payments:
-            processor.recurring = "FIRST"
-        processor.set_paymethod(
-            method_type="PBL",
-            value="ap",
-            authorization_code=base64.b64encode(
-                google_pay_token.encode("utf-8")
-            ).decode("ascii"),
-        )
-        data = self.create_order(payment, processor)
-        return HttpResponse(data, status=200)
 
     def post_request(self, url, *args, **kwargs):
         for i in range(1, self.retry_count):
