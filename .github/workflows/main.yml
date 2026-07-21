@@ -117,6 +117,9 @@ jobs:
         uses: codecov/codecov-action@v5
         with:
           files: ./coverage.xml
+          # Tokenless uploads are discarded for same-repo branches - the
+          # secret is required for reports to actually appear.
+          token: ${{ secrets.CODECOV_TOKEN }}
 
   lint:
     runs-on: ubuntu-latest
