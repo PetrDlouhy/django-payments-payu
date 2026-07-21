@@ -1,6 +1,7 @@
 from __future__ import unicode_literals
 
 import base64
+import hashlib
 import contextlib
 import json
 import warnings
@@ -1667,6 +1668,48 @@ class TestPayuProvider(TestCase):
         self.assertEqual(ret_val.status_code, 200)
         self.assertEqual(ret_val.content, b"ok")
         self.assertEqual(self.payment.status, PaymentStatus.CONFIRMED)
+        self.payment.refresh_from_db()
+        self.assertEqual(self.payment.status, PaymentStatus.CONFIRMED)
+
+    def test_process_notification_does_not_demote_confirmed_to_input(self):
+        """A late PENDING notification must not move a CONFIRMED payment back.
+
+        Regression test for out-of-order delivery (issue #18): PENDING /
+        WAITING_FOR_CONFIRMATION map to INPUT, and a stale one arriving after
+        COMPLETED used to drag a paid order back to "input".
+        """
+        self.set_up_provider(
+            True, True, get_refund_description=lambda payment, amount: "test"
+        )
+        self.payment.transaction_id = "123"
+        self.payment.change_status(PaymentStatus.CONFIRMED)
+        self.payment.save()
+        mocked_request = MagicMock()
+        mocked_request.body = json.dumps(
+            {
+                "order": dict(
+                    self.provider.get_processor(self.payment).as_json(),
+                    orderId=self.payment.transaction_id,
+                    orderCreateDate="2012-12-31T12:00:00",
+                    status="PENDING",
+                )
+            }
+        ).encode("utf8")
+        signature = hashlib.md5(
+            mocked_request.body + SECOND_KEY.encode("utf8")
+        ).hexdigest()
+        mocked_request.META = {
+            "CONTENT_TYPE": "application/json",
+            "HTTP_OPENPAYU_SIGNATURE": "signature={};algorithm=MD5".format(signature),
+        }
+        mocked_request.status_code = 200
+
+        ret_val = self.provider.process_data(
+            payment=self.payment, request=mocked_request
+        )
+
+        self.assertEqual(ret_val.status_code, 200)
+        self.assertEqual(ret_val.content, b"ok")
         self.payment.refresh_from_db()
         self.assertEqual(self.payment.status, PaymentStatus.CONFIRMED)
 
