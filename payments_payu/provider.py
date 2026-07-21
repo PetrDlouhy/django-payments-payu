@@ -993,9 +993,7 @@ class PayuProvider(BasicProvider):
             signature = request.body + key.encode("utf8")
             m.update(signature)
             signature = m.hexdigest()
-            if (
-                incoming_signature == signature
-            ):  # and not payment.status == PaymentStatus.CONFIRMED:
+            if incoming_signature == signature:
                 data = json.loads(request.body.decode("utf8"))
                 add_new_status(payment, data)
                 if "refund" in data:
@@ -1003,7 +1001,6 @@ class PayuProvider(BasicProvider):
                         data["refund"]["amount"],
                         data["refund"]["currencyCode"],
                     )
-                    print(refunded_price, payment.total)
                     if data["refund"]["status"] == "FINALIZED":
                         payment.message += data["refund"]["reasonDescription"]
                         if refunded_price > payment.captured_amount:
@@ -1028,7 +1025,7 @@ class PayuProvider(BasicProvider):
                             payment._change_reason = original_reason
                         return HttpResponse("ok", status=200)
                     else:
-                        raise Exception("Refund was not finelized", data)
+                        raise PayuApiError("Refund was not finalized", data)
                 else:
                     status_map = {
                         "COMPLETED": PaymentStatus.CONFIRMED,
