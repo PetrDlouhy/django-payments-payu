@@ -9,6 +9,7 @@ from copy import deepcopy
 from decimal import Decimal
 from unittest import TestCase
 
+import requests
 from django.template import Context, Template
 from mock import MagicMock, Mock, patch
 from payments import FraudStatus, PaymentStatus, PurchasedItem, RedirectNeeded
@@ -185,6 +186,12 @@ class Payment(Mock):
 
     def get_renew_token(self):
         return self.token
+
+    renew_token_invalidated = False
+
+    def invalidate_renew_token(self):
+        self.renew_token_invalidated = True
+        self.token = None
 
     def set_renew_token(
         self,
@@ -3061,6 +3068,173 @@ class TestPayuProvider(TestCase):
         first_buyer = dict(processor.buyer)
         processor.set_buyer_data("Other", "Person", "other@example.com", None, "en")
         self.assertEqual(processor.buyer, first_buyer)
+
+    def _post_widget_token(self, response_body):
+        self.payment.token = None
+        mocked_request = MagicMock()
+        mocked_request.POST = {"value": "CARD_TOKEN"}
+        mocked_request.META = {}
+        with patch("requests.post") as mocked_post:
+            post = MagicMock()
+            post.text = json.dumps(response_body)
+            post.status_code = 400
+            mocked_post.return_value = post
+            return self.provider.process_data(
+                payment=self.payment, request=mocked_request
+            )
+
+    def test_create_order_invalid_token_invalidates_renew_token(self):
+        """A permanent INVALID_TOKEN error drops the stored renew token.
+
+        Retrying a token PayU no longer knows can never succeed - the renewal
+        task must stop selecting the account and interactive users must get a
+        fresh card widget instead of a guaranteed failure.
+        """
+        self.set_up_provider(
+            True, True, get_refund_description=lambda payment, amount: "test"
+        )
+        response = self._post_widget_token(
+            {
+                "status": {
+                    "statusCode": "ERROR_VALUE_INVALID",
+                    "code": "8342",
+                    "codeLiteral": "INVALID_TOKEN",
+                    "statusDesc": "Invalid or expired token",
+                }
+            }
+        )
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(self.payment.status, PaymentStatus.ERROR)
+        self.assertIs(self.payment.renew_token_invalidated, True)
+
+    def test_create_order_business_error_keeps_renew_token(self):
+        """A non-token error (e.g. antifraud) must not drop the renew token."""
+        self.set_up_provider(
+            True, True, get_refund_description=lambda payment, amount: "test"
+        )
+        self._post_widget_token(
+            {"status": {"statusCode": "BUSINESS_ERROR", "codeLiteral": "Foo code"}}
+        )
+        self.assertIs(self.payment.renew_token_invalidated, False)
+
+    def test_create_order_invalid_token_without_host_hook(self):
+        """A host Payment without invalidate_renew_token only gets a warning."""
+        self.set_up_provider(
+            True, True, get_refund_description=lambda payment, amount: "test"
+        )
+        with patch.object(Payment, "invalidate_renew_token", None):
+            with self.assertLogs("payments_payu.provider", level="WARNING") as logs:
+                self._post_widget_token(
+                    {
+                        "status": {
+                            "statusCode": "ERROR_VALUE_INVALID",
+                            "codeLiteral": "INVALID_TOKEN",
+                        }
+                    }
+                )
+        self.assertTrue(
+            any(
+                "does not implement invalidate_renew_token" in line
+                for line in logs.output
+            ),
+            logs.output,
+        )
+        self.assertEqual(self.payment.status, PaymentStatus.ERROR)
+
+    def _notify_canceled(self):
+        mocked_request = MagicMock()
+        mocked_request.body = json.dumps(
+            {
+                "order": dict(
+                    self.provider.get_processor(self.payment).as_json(),
+                    orderId=self.payment.transaction_id,
+                    orderCreateDate="2012-12-31T12:00:00",
+                    status="CANCELED",
+                )
+            }
+        ).encode("utf8")
+        signature = hashlib.md5(
+            mocked_request.body + SECOND_KEY.encode("utf8")
+        ).hexdigest()
+        mocked_request.META = {
+            "CONTENT_TYPE": "application/json",
+            "HTTP_OPENPAYU_SIGNATURE": "signature={};algorithm=MD5".format(signature),
+        }
+        mocked_request.status_code = 200
+        return self.provider.process_data(payment=self.payment, request=mocked_request)
+
+    def test_process_notification_rejected_stores_transaction_detail(self):
+        """A rejection stores the PayU transaction detail for diagnostics.
+
+        The CANCELED notification carries no reason; the transaction detail
+        (paymentFlow + card response codes) is the only record of why the
+        payment was declined.
+        """
+        self.set_up_provider(
+            True, True, get_refund_description=lambda payment, amount: "test"
+        )
+        self.payment.transaction_id = "1234"
+        self.payment.save()
+        with patch("requests.get") as mocked_get:
+            get = MagicMock()
+            get.text = json.dumps(
+                {
+                    "transactions": [
+                        {
+                            "payMethod": {"value": "c"},
+                            "paymentFlow": "GOOGLE_PAY",
+                            "card": {
+                                "cardData": {
+                                    "cardResponseCodeDesc": "114 - 3ds authentication error (global)"
+                                }
+                            },
+                        }
+                    ]
+                }
+            )
+            get.status_code = 200
+            mocked_get.return_value = get
+            ret_val = self._notify_canceled()
+        self.assertEqual(ret_val.content, b"ok")
+        self.assertEqual(self.payment.status, PaymentStatus.REJECTED)
+        detail = json.loads(self.payment.extra_data)["rejection_transaction"]
+        self.assertEqual(detail["paymentFlow"], "GOOGLE_PAY")
+        self.assertEqual(
+            detail["card"]["cardData"]["cardResponseCodeDesc"],
+            "114 - 3ds authentication error (global)",
+        )
+
+    def test_process_notification_rejected_with_no_transactions(self):
+        """An empty transaction list simply stores no rejection detail."""
+        self.set_up_provider(
+            True, True, get_refund_description=lambda payment, amount: "test"
+        )
+        self.payment.transaction_id = "1234"
+        self.payment.save()
+        with patch("requests.get") as mocked_get:
+            get = MagicMock()
+            get.text = json.dumps({"transactions": []})
+            get.status_code = 200
+            mocked_get.return_value = get
+            ret_val = self._notify_canceled()
+        self.assertEqual(ret_val.content, b"ok")
+        self.assertEqual(self.payment.status, PaymentStatus.REJECTED)
+        self.assertNotIn("rejection_transaction", json.loads(self.payment.extra_data))
+
+    def test_process_notification_rejected_survives_fetch_failure(self):
+        """A failing transaction-detail fetch must not break the rejection ack."""
+        self.set_up_provider(
+            True, True, get_refund_description=lambda payment, amount: "test"
+        )
+        self.payment.transaction_id = "1234"
+        self.payment.save()
+        with patch("requests.get") as mocked_get:
+            mocked_get.side_effect = requests.ConnectionError("boom")
+            with self.assertLogs("payments_payu.provider", level="WARNING"):
+                ret_val = self._notify_canceled()
+        self.assertEqual(ret_val.content, b"ok")
+        self.assertEqual(self.payment.status, PaymentStatus.REJECTED)
+        self.assertNotIn("rejection_transaction", json.loads(self.payment.extra_data))
 
     @contextlib.contextmanager
     def _patch_refund(

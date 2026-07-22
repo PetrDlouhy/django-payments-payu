@@ -2,6 +2,19 @@
 
 History
 -------
+Unreleased
+**********
+* permanent token errors (PayU ``INVALID_TOKEN``) now invalidate the stored
+  renew token via the host's optional ``payment.invalidate_renew_token()``
+  hook - renewal tasks stop retrying a token that can never work again and
+  interactive users get a fresh card widget instead of a guaranteed
+  failure. Retryable declines (insufficient funds etc.) are unaffected.
+* rejected payments store the PayU transaction detail (``paymentFlow`` +
+  card response codes, e.g. "114 - 3ds authentication error") in
+  ``extra_data["rejection_transaction"]`` - the CANCELED notification
+  itself carries no reason, so this is the only durable record of why a
+  payment was declined.
+
 2.5.0 (2026-07-21)
 ******************
 * replace the stray debug ``print`` in the refund notification path and the
