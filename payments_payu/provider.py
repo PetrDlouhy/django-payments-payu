@@ -44,6 +44,10 @@ CURRENCY_SUB_UNIT = {
 
 CENTS = Decimal("0.01")
 
+# PayU error codeLiterals that mean the stored card token can never work
+# again (as opposed to retryable declines like insufficient funds).
+PERMANENT_TOKEN_ERROR_LITERALS = frozenset({"INVALID_TOKEN"})
+
 GOOGLE_PAY_ALLOWED_AUTH_METHODS = ["PAN_ONLY", "CRYPTOGRAM_3DS"]
 GOOGLE_PAY_ALLOWED_CARD_NETWORKS = ["MASTERCARD", "VISA"]
 
@@ -916,6 +920,30 @@ class PayuProvider(BasicProvider):
             )
             return ""
         payment.change_status(PaymentStatus.ERROR)
+        if (
+            isinstance(response_status, dict)
+            and response_status.get("codeLiteral") in PERMANENT_TOKEN_ERROR_LITERALS
+        ):
+            # The stored card token is permanently dead (e.g. deactivated at
+            # PayU) - retrying it can never succeed. Drop it so renewal tasks
+            # stop selecting the account and interactive users get a fresh
+            # card widget instead of a guaranteed failure.
+            invalidate = getattr(payment, "invalidate_renew_token", None)
+            if callable(invalidate):
+                invalidate()
+                logger.info(
+                    "Invalidated the renew token of payment %s after %s",
+                    payment.pk,
+                    response_status.get("codeLiteral"),
+                )
+            else:
+                logger.warning(
+                    "Payment %s failed with the permanent token error %s, but the "
+                    "payment model does not implement invalidate_renew_token() - "
+                    "the dead token will keep being retried",
+                    payment.pk,
+                    response_status.get("codeLiteral"),
+                )
         try:
             raise PayuApiError(response_dict)
         except PayuApiError:
@@ -1070,9 +1098,45 @@ class PayuProvider(BasicProvider):
                             status,
                         )
                         return HttpResponse("ok", status=200)
+                    if status == PaymentStatus.REJECTED:
+                        self._store_rejection_transaction(payment)
                     payment.change_status(status)
                     return HttpResponse("ok", status=200)
         return HttpResponse("not ok", status=500)
+
+    def _store_rejection_transaction(self, payment):
+        """Store the PayU transaction detail of a rejected order.
+
+        The CANCELED notification carries no reason - the transaction detail
+        (paymentFlow + card response codes, e.g. "114 - 3ds authentication
+        error") is the only record of why the payment was declined, so keep
+        it in extra_data for diagnostics. Best-effort: a fetch failure must
+        never break the notification ack.
+        """
+        try:
+            response = requests.get(
+                f"{self.payu_api_orders_url}{payment.transaction_id}/transactions",
+                headers=self.get_token_headers(),
+            )
+            transactions = json.loads(response.text).get("transactions") or []
+        except (requests.RequestException, ValueError) as e:
+            logger.warning(
+                "Could not fetch the transaction detail of rejected payment %s: %s",
+                payment.pk,
+                e,
+            )
+            return
+        if not transactions:
+            return
+        add_extra_data(
+            payment,
+            {
+                "rejection_transaction": {
+                    "paymentFlow": transactions[0].get("paymentFlow"),
+                    "card": transactions[0].get("card"),
+                }
+            },
+        )
 
     def process_data(self, payment, request, *args, **kwargs):
         self.request = request
