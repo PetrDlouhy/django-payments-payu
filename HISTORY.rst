@@ -2,8 +2,8 @@
 
 History
 -------
-Unreleased
-**********
+2.6.0 (2026-07-23)
+******************
 * permanent token errors (PayU ``INVALID_TOKEN``) now invalidate the stored
   renew token via the host's optional ``payment.invalidate_renew_token()``
   hook - renewal tasks stop retrying a token that can never work again and
