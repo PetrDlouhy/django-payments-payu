@@ -2,8 +2,8 @@
 
 History
 -------
-unreleased
-**********
+2.6.1 (2026-07-30)
+******************
 * ``create_order`` no longer creates a duplicate PayU order for a payment
   that already has one (``transaction_id`` set): duplicate submissions -
   a double POST, the browser returning from 3DS, a refresh - now look the
