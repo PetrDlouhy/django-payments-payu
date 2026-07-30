@@ -1012,6 +1012,31 @@ class TestPayuProvider(TestCase):
             "google-pay-button", form.fields["script"].widget.render("a", "b")
         )
 
+    def test_widget_callback_uses_fetch_not_jquery(self):
+        """The widget's success callback must not depend on jQuery.
+
+        cardSuccess used $.post, so a host page without jQuery got
+        "ReferenceError: $ is not defined" the moment the buyer confirmed
+        their card: the token POST never fired and the payment silently
+        died. It now posts with fetch, like the Google Pay path.
+        """
+        self.set_up_provider(
+            True, True, get_refund_description=lambda payment, amount: "test"
+        )
+        self.payment.token = None
+        form = self.provider.get_form(payment=self.payment)
+        html = form.fields["script"].widget.render("a", "b")
+
+        self.assertNotIn("$.post", html)
+        self.assertNotIn("$data", html)
+        self.assertIn("fetch(", html)
+        # form-encoded: process_data() reads request.POST["value"] and routes
+        # an application/json body to the notification handler instead
+        self.assertIn("application/x-www-form-urlencoded", html)
+        self.assertIn("https://example.com/process_url/token", html)
+        # the CVV callback keeps its plain redirect
+        self.assertIn('window.location.href="http://foo_succ.com"', html)
+
     def test_payu_widget_form_google_pay(self):
         """Test that the Google Pay button is rendered in the express form"""
         self.set_up_provider(

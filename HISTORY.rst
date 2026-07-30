@@ -2,6 +2,20 @@
 
 History
 -------
+unreleased
+**********
+* the card widget's ``cardSuccess`` callback posts the tokenized card with
+  ``fetch`` instead of jQuery's ``$.post``. The generated snippet was the
+  package's only jQuery dependency, and it was invisible to host projects:
+  a site that does not load jQuery (or whose jQuery is blocked) raised
+  "ReferenceError: $ is not defined" the moment the buyer confirmed their
+  card, so the token POST never fired and the payment silently died. The
+  body stays form-encoded, since ``process_data`` reads
+  ``request.POST['value']`` and routes ``application/json`` to the
+  notification handler. A failed post is logged instead of surfacing as an
+  unhandled promise rejection, and the callbacks no longer ``console.log``
+  the token payload.
+
 2.6.1 (2026-07-30)
 ******************
 * ``create_order`` no longer creates a duplicate PayU order for a payment
