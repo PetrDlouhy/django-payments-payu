@@ -10,6 +10,7 @@ from urllib.parse import urljoin
 
 import requests
 from django import forms
+from django.db import transaction
 from django.http.response import HttpResponse, HttpResponseRedirect
 from django.utils.html import format_html, format_html_join
 from django.utils.safestring import mark_safe
@@ -256,6 +257,30 @@ def add_new_status(payment, new_status):
     )
     payment.save(update_fields=["extra_data"])
     payment._change_reason = original_reason
+
+
+def change_status_unless_confirmed(payment, status, message=""):
+    """Demote-safely change a payment's status.
+
+    PayU confirms payments asynchronously (a webhook on a parallel request),
+    so the in-memory instance can be stale: loaded before the webhook's
+    transaction committed, it still shows a pre-confirmation status while the
+    database row is already CONFIRMED. Checking ``payment.status`` on the
+    instance is therefore not enough - re-read the row under a lock and
+    refuse to overwrite a CONFIRMED state, otherwise a duplicate or late
+    failure response clobbers a real capture.
+
+    Intended for demotions (ERROR, REJECTED, ...); don't call it with
+    CONFIRMED. Returns True when the status was changed, False when CONFIRMED
+    was kept (the instance's status is synced so callers see the real state).
+    """
+    with transaction.atomic():
+        fresh = type(payment).objects.select_for_update().get(pk=payment.pk)
+        if fresh.status == PaymentStatus.CONFIRMED:
+            payment.status = PaymentStatus.CONFIRMED
+            return False
+        payment.change_status(status, message)
+    return True
 
 
 def quantize_price(price, currency):
@@ -636,7 +661,7 @@ class PayuProvider(BasicProvider):
                     }
                 },
             )
-            payment.change_status(PaymentStatus.ERROR)
+            change_status_unless_confirmed(payment, PaymentStatus.ERROR)
             return None
         return token
 
@@ -904,9 +929,10 @@ class PayuProvider(BasicProvider):
                 payment.change_fraud_status(FraudStatus.REJECT, message=response_dict)
             else:
                 add_extra_data(payment, response_dict)
-        if payment.status == PaymentStatus.CONFIRMED:
+        if not change_status_unless_confirmed(payment, PaymentStatus.ERROR):
             # The payment was already confirmed (typically by an asynchronous
-            # PayU webhook on a parallel request). A duplicate create_order -
+            # PayU webhook on a parallel request - the database row can be
+            # ahead of this in-memory instance). A duplicate create_order -
             # e.g. the user's browser POSTing to the process URL again after
             # 3DS or on retry - is rejected by PayU (single-use widget token,
             # ERROR_ORDER_NOT_UNIQUE, antifraud, ...). Don't demote the
@@ -919,7 +945,6 @@ class PayuProvider(BasicProvider):
                 response_dict,
             )
             return ""
-        payment.change_status(PaymentStatus.ERROR)
         if (
             isinstance(response_status, dict)
             and response_status.get("codeLiteral") in PERMANENT_TOKEN_ERROR_LITERALS
@@ -1078,18 +1103,23 @@ class PayuProvider(BasicProvider):
                         )
                         payment.save(update_fields=["captured_amount"])
                         payment._change_reason = original_reason
-                    if (
-                        payment.status == PaymentStatus.CONFIRMED
-                        and payment.status != status
-                    ):
+                    if status == PaymentStatus.CONFIRMED:
+                        payment.change_status(status)
+                    elif change_status_unless_confirmed(payment, status):
+                        if status == PaymentStatus.REJECTED:
+                            self._store_rejection_transaction(payment)
+                    else:
                         # A CONFIRMED payment must not be demoted by a later
                         # notification. PayU can deliver duplicate/out-of-order
                         # callbacks (e.g. a stale CANCELED arriving after
-                        # COMPLETED); applying one would clobber a real capture.
-                        # Refunds are handled by the "refund" branch above, not
-                        # here, so any non-confirmed status for an already
-                        # confirmed payment is spurious. Ack it (200) so PayU
-                        # stops retrying, but keep the CONFIRMED state.
+                        # COMPLETED), and the database row can be ahead of this
+                        # in-memory instance (a webhook on a parallel request
+                        # confirmed the payment after we loaded it); applying
+                        # the demotion would clobber a real capture. Refunds
+                        # are handled by the "refund" branch above, not here,
+                        # so any non-confirmed status for an already confirmed
+                        # payment is spurious. Ack it (200) so PayU stops
+                        # retrying, but keep the CONFIRMED state.
                         logger.error(
                             "Suspicious status change of payment %s: %s -> %s; "
                             "keeping CONFIRMED",
@@ -1097,10 +1127,6 @@ class PayuProvider(BasicProvider):
                             payment.status,
                             status,
                         )
-                        return HttpResponse("ok", status=200)
-                    if status == PaymentStatus.REJECTED:
-                        self._store_rejection_transaction(payment)
-                    payment.change_status(status)
                     return HttpResponse("ok", status=200)
         return HttpResponse("not ok", status=500)
 
