@@ -334,18 +334,33 @@ class WidgetPaymentForm(PaymentForm):
                 "</script>"
                 """
             <script>
-                function cardSuccess($data) {{
-                    console.log('callback');
-                    console.log($data);
-                    $.post(
-                        '{process_url}',
-                        $data,
-                        function(data){{ window.location.href=data; }}
-                    );
+                function cardSuccess(data) {{
+                    // Form-encoded, not JSON: process_data() reads
+                    // request.POST['value'] and routes an application/json
+                    // body to the notification handler instead.
+                    var body = new URLSearchParams();
+                    Object.keys(data || {{}}).forEach(function(key) {{
+                        if (data[key] !== null && data[key] !== undefined) {{
+                            body.append(key, data[key]);
+                        }}
+                    }});
+                    fetch('{process_url}', {{
+                        method: 'POST',
+                        headers: {{
+                            'Content-Type': 'application/x-www-form-urlencoded'
+                        }},
+                        body: body.toString()
+                    }}).then(function(response) {{
+                        return response.text();
+                    }}).then(function(url) {{
+                        window.location.href = url;
+                    }}).catch(function(err) {{
+                        // Never leave this as an unhandled rejection: the
+                        // buyer already confirmed the card at this point.
+                        console.error('PayU card callback failed', err);
+                    }});
                 }}
-                function cvvSuccess($data) {{
-                    console.log('cvv success');
-                    console.log($data);
+                function cvvSuccess(data) {{
                     window.location.href="{success_url}";
                 }}
             </script>
