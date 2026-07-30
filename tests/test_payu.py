@@ -3295,6 +3295,110 @@ class TestPayuProvider(TestCase):
         mocked_request.status_code = 200
         return self.provider.process_data(payment=self.payment, request=mocked_request)
 
+    def _create_order_with_existing_payu_order(
+        self, lookup, auto_renew=False, extra_data=None
+    ):
+        """Call create_order for a payment that already has a PayU order.
+
+        ``lookup`` is the mocked GET /orders/{id} response body (or an
+        exception instance to raise). Returns (create_order result, mocked
+        requests.post) so tests can assert whether a new order was created.
+        """
+        self.payment.transaction_id = "EXISTING_ORDER"
+        if extra_data is not None:
+            self.payment.extra_data = json.dumps(extra_data)
+        self.payment.save()
+        with patch("requests.get") as mocked_get, patch("requests.post") as mocked_post:
+            if isinstance(lookup, Exception):
+                mocked_get.side_effect = lookup
+            else:
+                get = MagicMock()
+                get.text = json.dumps(lookup)
+                get.status_code = 200
+                mocked_get.return_value = get
+            post = MagicMock()
+            post.text = json.dumps(
+                {
+                    "status": {"statusCode": "SUCCESS"},
+                    "redirectUri": "http://fresh-order.example",
+                    "orderId": "FRESH_ORDER",
+                }
+            )
+            post.status_code = 200
+            mocked_post.return_value = post
+            result = self.provider.create_order(
+                self.payment,
+                self.provider.get_processor(self.payment),
+                auto_renew=auto_renew,
+            )
+        return result, mocked_post
+
+    def test_create_order_existing_completed_order_not_recreated(self):
+        """A duplicate create_order for a captured PayU order is a no-op.
+
+        The production race: the browser re-POSTs while the webhook already
+        confirmed the payment. Creating a second order would burn the
+        single-use token; the user is sent back to the payment page instead.
+        """
+        self.set_up_provider(
+            True, True, get_refund_description=lambda payment, amount: "test"
+        )
+        result, mocked_post = self._create_order_with_existing_payu_order(
+            {"orders": [{"status": "COMPLETED"}]}
+        )
+        self.assertEqual(result, "")
+        mocked_post.assert_not_called()
+
+    def test_create_order_existing_completed_order_auto_renew_success(self):
+        """The auto-renewal path reports success for an already captured order."""
+        self.set_up_provider(
+            True, True, get_refund_description=lambda payment, amount: "test"
+        )
+        result, mocked_post = self._create_order_with_existing_payu_order(
+            {"orders": [{"status": "COMPLETED"}]}, auto_renew=True
+        )
+        self.assertEqual(result, "success")
+        mocked_post.assert_not_called()
+
+    def test_create_order_existing_pending_order_reserves_continuation(self):
+        """An in-flight PayU order re-serves its stored continuation URL."""
+        self.set_up_provider(
+            True, True, get_refund_description=lambda payment, amount: "test"
+        )
+        result, mocked_post = self._create_order_with_existing_payu_order(
+            {"orders": [{"status": "PENDING"}]},
+            extra_data={"3ds_url": "http://3ds.example/continue"},
+        )
+        self.assertEqual(result, "http://3ds.example/continue")
+        mocked_post.assert_not_called()
+
+    def test_create_order_existing_canceled_order_creates_fresh_one(self):
+        """A finally dead PayU order lets a retry create a fresh order."""
+        self.set_up_provider(
+            True, True, get_refund_description=lambda payment, amount: "test"
+        )
+        result, mocked_post = self._create_order_with_existing_payu_order(
+            {"orders": [{"status": "CANCELED"}]}
+        )
+        self.assertEqual(result, "http://fresh-order.example")
+        mocked_post.assert_called_once()
+
+    def test_create_order_existing_order_lookup_failure_serves_stored_redirect(self):
+        """A failed order lookup must not fall through to a duplicate create.
+
+        Serving the stored pay-by-link redirect keeps the user on the
+        existing order; only a confirmed-dead order may be recreated.
+        """
+        self.set_up_provider(
+            True, True, get_refund_description=lambda payment, amount: "test"
+        )
+        result, mocked_post = self._create_order_with_existing_payu_order(
+            requests.exceptions.ConnectionError("payu down"),
+            extra_data={"card_response": {"redirectUri": "http://paybylink.example"}},
+        )
+        self.assertEqual(result, "http://paybylink.example")
+        mocked_post.assert_not_called()
+
     def test_process_notification_rejected_stores_transaction_detail(self):
         """A rejection stores the PayU transaction detail for diagnostics.
 

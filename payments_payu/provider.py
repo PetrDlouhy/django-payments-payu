@@ -862,13 +862,70 @@ class PayuProvider(BasicProvider):
 
         return response.status_code == 204
 
+    def _redirect_for_existing_order(self, payment, auto_renew):
+        """Resolve a create_order call for a payment that already has a PayU order.
+
+        Duplicate submissions (a double POST, the browser returning from 3DS,
+        a refresh/retry) must not create a second PayU order: with a
+        single-use widget/wallet token the retry is a guaranteed rejection
+        that burns the token, and in pay-by-link flows it would open a second
+        real, payable order. Look the existing order up at PayU instead.
+
+        Returns the redirect to serve for the existing order, or None when a
+        fresh order may be created because the existing one is finally dead
+        (canceled/rejected).
+        """
+        try:
+            response = requests.get(
+                self._get_payu_api_order_url(payment.transaction_id),
+                headers=self.get_token_headers(),
+            )
+            order_status = json.loads(response.text)["orders"][0]["status"]
+        except (requests.RequestException, PayuApiError, ValueError, LookupError):
+            # Better to show the payment's current state than to risk a
+            # duplicate order just because the lookup failed.
+            logger.warning(
+                "Could not look up existing PayU order %s of payment %s; "
+                "serving the stored redirect instead of creating a duplicate",
+                payment.transaction_id,
+                payment.pk,
+                exc_info=True,
+            )
+            order_status = None
+        if order_status in ("CANCELED", "REJECTED"):
+            return None
+        logger.info(
+            "create_order called for payment %s which already has PayU order "
+            "%s (status %s); not creating a duplicate",
+            payment.pk,
+            payment.transaction_id,
+            order_status,
+        )
+        if order_status == "COMPLETED":
+            # The money is (or is about to be) captured - the webhook drives
+            # the local status; send the user where that state is visible.
+            return "success" if auto_renew else ""
+        # The order is still in flight - point the user back at its stored
+        # continuation (3DS challenge, CVV form, or the pay-by-link page)
+        # rather than starting a competing order.
+        extra_data = json.loads(payment.extra_data) if payment.extra_data else {}
+        return (
+            extra_data.get("3ds_url")
+            or extra_data.get("cvv_url")
+            or extra_data.get("card_response", {}).get("redirectUri")
+            or ""
+        )
+
     def create_order(self, payment, payment_processor, auto_renew=False):
         """
         Create order and return payment link or redirect
 
         return redirectUrl  url where the user should go next
         """
-        payment = payment
+        if payment.transaction_id:
+            redirect = self._redirect_for_existing_order(payment, auto_renew)
+            if redirect is not None:
+                return redirect
         payment_processor.pos_id = self.pos_id
         json_data = payment_processor.as_json()
         response_dict = self.post_request(
