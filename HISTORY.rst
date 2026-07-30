@@ -4,6 +4,14 @@ History
 -------
 unreleased
 **********
+* ``create_order`` no longer creates a duplicate PayU order for a payment
+  that already has one (``transaction_id`` set): duplicate submissions -
+  a double POST, the browser returning from 3DS, a refresh - now look the
+  existing order up at PayU and re-serve its continuation (3DS/CVV/pay-by-
+  link URL) or the payment page when it is completed. Only a finally dead
+  order (CANCELED/REJECTED) falls through to a fresh create. This removes
+  the guaranteed-rejection retry that burned single-use tokens and, in
+  pay-by-link flows, the risk of opening a second payable order.
 * the don't-demote-CONFIRMED guards (duplicate ``create_order`` rejections,
   late/out-of-order notifications) now re-read the payment status from the
   database under ``select_for_update`` instead of trusting the in-memory
