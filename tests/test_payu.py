@@ -99,6 +99,9 @@ class PaymentQuerySet(Mock):
             )
         return self
 
+    def select_for_update(self, *args, **kwargs):
+        return self
+
     def update(self, **kwargs):
         for payment in self.__payments.values():
             for field_name, field_value in kwargs.items():
@@ -491,6 +494,48 @@ class TestPayuProvider(TestCase):
                 self.provider.get_form(payment=self.payment)
             self.assertEqual(context.exception.args[0], "")
             self.assertEqual(self.payment.status, PaymentStatus.CONFIRMED)
+
+    def test_redirect_payu_stale_confirmed_payment_not_demoted(self):
+        """A CONFIRMED database row protects against a stale in-memory demote.
+
+        The race seen in production: request A's create_order succeeds and the
+        PayU webhook confirms the payment on a parallel request, while request
+        B still holds the instance it loaded *before* that confirmation
+        committed. B's duplicate create_order is rejected by PayU (single-use
+        token, ERROR_VALUE_INVALID/INVALID_TOKEN); with only an in-memory
+        status check B would demote the captured payment to ERROR and drop the
+        renew token. The database row is CONFIRMED, so both must be kept.
+        """
+        self.set_up_provider(
+            True, False, get_refund_description=lambda payment, amount: "test"
+        )
+        self.payment.save()
+        self.assertEqual(self.payment.status, PaymentStatus.WAITING)
+        Payment.objects.filter(pk=self.payment.pk).update(
+            status=PaymentStatus.CONFIRMED
+        )
+        with patch("requests.post") as mocked_post:
+            post = MagicMock()
+            post_text = {
+                "status": {
+                    "statusCode": "ERROR_VALUE_INVALID",
+                    "code": "8342",
+                    "codeLiteral": "INVALID_TOKEN",
+                    "statusDesc": "Invalid or expired token",
+                },
+                "orderId": 123,
+            }
+            post.text = json.dumps(post_text)
+            post.status_code = 200
+            mocked_post.return_value = post
+            with self.assertRaises(RedirectNeeded) as context:
+                self.provider.get_form(payment=self.payment)
+            self.assertEqual(context.exception.args[0], "")
+        self.assertEqual(self.payment.status, PaymentStatus.CONFIRMED)
+        self.assertEqual(
+            Payment.objects.get(pk=self.payment.pk).status, PaymentStatus.CONFIRMED
+        )
+        self.assertIs(self.payment.renew_token_invalidated, False)
 
     def test_redirect_payu_confirmed_payment_business_error(self):
         """A BUSINESS_ERROR on a CONFIRMED payment must not demote it.
@@ -1667,6 +1712,93 @@ class TestPayuProvider(TestCase):
         self.payment.transaction_id = "123"
         self.payment.change_status(PaymentStatus.CONFIRMED)
         self.payment.save()
+        mocked_request = MagicMock()
+        mocked_request.body = json.dumps(
+            {
+                "order": dict(
+                    self.provider.get_processor(self.payment).as_json(),
+                    orderId=self.payment.transaction_id,
+                    orderCreateDate="2012-12-31T12:00:00",
+                    status="CANCELED",
+                )
+            }
+        ).encode("utf8")
+        mocked_request.META = {
+            "CONTENT_TYPE": "application/json",
+            "HTTP_OPENPAYU_SIGNATURE": "signature=f376048898aa0c629d1f64317ce13736;algorithm=MD5",
+        }
+        mocked_request.status_code = 200
+
+        ret_val = self.provider.process_data(
+            payment=self.payment, request=mocked_request
+        )
+
+        self.assertEqual(ret_val.__class__.__name__, "HttpResponse")
+        self.assertEqual(ret_val.status_code, 200)
+        self.assertEqual(ret_val.content, b"ok")
+        self.assertEqual(self.payment.status, PaymentStatus.CONFIRMED)
+        self.payment.refresh_from_db()
+        self.assertEqual(self.payment.status, PaymentStatus.CONFIRMED)
+
+    def test_process_notification_pending_moves_waiting_to_input(self):
+        """A PENDING notification on an unconfirmed payment applies normally.
+
+        The demote guard must only protect CONFIRMED payments - an ordinary
+        in-flight status change (PENDING -> input, no rejection detail to
+        store) still goes through.
+        """
+        self.set_up_provider(
+            True, True, get_refund_description=lambda payment, amount: "test"
+        )
+        self.payment.transaction_id = "123"
+        self.payment.save()
+        body = json.dumps(
+            {
+                "order": dict(
+                    self.provider.get_processor(self.payment).as_json(),
+                    orderId=self.payment.transaction_id,
+                    orderCreateDate="2012-12-31T12:00:00",
+                    status="PENDING",
+                )
+            }
+        ).encode("utf8")
+        signature = hashlib.md5(body + SECOND_KEY.encode("utf8")).hexdigest()
+        mocked_request = MagicMock()
+        mocked_request.body = body
+        mocked_request.META = {
+            "CONTENT_TYPE": "application/json",
+            "HTTP_OPENPAYU_SIGNATURE": f"signature={signature};algorithm=MD5",
+        }
+        mocked_request.status_code = 200
+
+        ret_val = self.provider.process_data(
+            payment=self.payment, request=mocked_request
+        )
+
+        self.assertEqual(ret_val.status_code, 200)
+        self.assertEqual(ret_val.content, b"ok")
+        self.assertEqual(self.payment.status, PaymentStatus.INPUT)
+        self.payment.refresh_from_db()
+        self.assertEqual(self.payment.status, PaymentStatus.INPUT)
+
+    def test_process_notification_stale_instance_does_not_demote_confirmed(self):
+        """A CONFIRMED database row wins over a stale in-memory instance.
+
+        The notification view can hold an instance loaded before a parallel
+        request's confirmation committed: the instance still shows WAITING
+        while the database row is CONFIRMED. A CANCELED notification processed
+        through that stale instance used to demote the captured payment - the
+        guard must check the database, not the instance.
+        """
+        self.set_up_provider(
+            True, True, get_refund_description=lambda payment, amount: "test"
+        )
+        self.payment.transaction_id = "123"
+        self.payment.save()
+        Payment.objects.filter(pk=self.payment.pk).update(
+            status=PaymentStatus.CONFIRMED
+        )
+        self.assertEqual(self.payment.status, PaymentStatus.WAITING)
         mocked_request = MagicMock()
         mocked_request.body = json.dumps(
             {

@@ -2,6 +2,16 @@
 
 History
 -------
+unreleased
+**********
+* the don't-demote-CONFIRMED guards (duplicate ``create_order`` rejections,
+  late/out-of-order notifications) now re-read the payment status from the
+  database under ``select_for_update`` instead of trusting the in-memory
+  instance. An instance loaded before a parallel webhook's confirmation
+  committed could still demote a captured payment to ERROR seconds after the
+  capture (and cancel its order in django-plans-payments hosts); the fresh
+  locked read closes that window on every demotion path.
+
 2.6.0 (2026-07-23)
 ******************
 * permanent token errors (PayU ``INVALID_TOKEN``) now invalidate the stored
