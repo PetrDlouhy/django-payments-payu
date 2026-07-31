@@ -4,10 +4,14 @@ import base64
 import contextlib
 import hashlib
 import json
+import os
+import shutil
+import subprocess
+import tempfile
 import warnings
 from copy import deepcopy
 from decimal import Decimal
-from unittest import TestCase
+from unittest import TestCase, skipUnless
 
 import requests
 from django.template import Context, Template
@@ -1036,6 +1040,39 @@ class TestPayuProvider(TestCase):
         self.assertIn("https://example.com/process_url/token", html)
         # the CVV callback keeps its plain redirect
         self.assertIn('window.location.href="http://foo_succ.com"', html)
+
+    @skipUnless(shutil.which("node"), "node is not available")
+    def test_widget_callback_js_behaviour(self):
+        """Execute the generated callbacks, don't just grep them.
+
+        The JS lives in Python string literals, so a normal test run never
+        runs it: the jQuery dependency that broke card payments for hosts
+        without jQuery sat here unexecuted for years. The Node harness
+        evaluates the inline scripts in a context that deliberately has no
+        jQuery and drives cardSuccess/cvvSuccess through their paths.
+        """
+        self.set_up_provider(
+            True, True, get_refund_description=lambda payment, amount: "test"
+        )
+        self.payment.token = None
+        form = self.provider.get_form(payment=self.payment)
+        html = form.fields["script"].widget.render("a", "b")
+
+        with tempfile.NamedTemporaryFile("w", suffix=".html") as rendered:
+            rendered.write(html)
+            rendered.flush()
+            result = subprocess.run(
+                [
+                    "node",
+                    os.path.join(os.path.dirname(__file__), "js", "widget_callbacks.mjs"),
+                    rendered.name,
+                ],
+                capture_output=True,
+                text=True,
+                check=False,
+            )
+
+        self.assertEqual(result.returncode, 0, result.stderr or result.stdout)
 
     def test_payu_widget_form_google_pay(self):
         """Test that the Google Pay button is rendered in the express form"""
