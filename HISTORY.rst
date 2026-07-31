@@ -2,8 +2,8 @@
 
 History
 -------
-unreleased
-**********
+2.7.0 (2026-07-31)
+******************
 * the card widget's ``cardSuccess`` callback posts the tokenized card with
   ``fetch`` instead of jQuery's ``$.post``. The generated snippet was the
   package's only jQuery dependency, and it was invisible to host projects:
