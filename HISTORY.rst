@@ -2,6 +2,12 @@
 
 History
 -------
+unreleased
+**********
+* Apple Pay merchant validation only contacts Apple Pay gateway hosts
+  (``https://(cn-)apple-pay-gateway(-*).apple.com/``); other validation URLs
+  are refused with HTTP 400 and a warning log.
+
 2.7.0 (2026-07-31)
 ******************
 * the card widget's ``cardSuccess`` callback posts the tokenized card with

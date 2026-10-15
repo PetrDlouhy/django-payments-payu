@@ -2,6 +2,7 @@ import base64
 import hashlib
 import json
 import logging
+import re
 import uuid
 import warnings
 from decimal import ROUND_HALF_UP, Decimal
@@ -141,6 +142,15 @@ GOOGLE_PAY_SCRIPT_TEMPLATE = Template("""
 
 APPLE_PAY_SUPPORTED_NETWORKS = ["masterCard", "visa"]
 APPLE_PAY_MERCHANT_CAPABILITIES = ["supports3DS"]
+# Merchant validation sends the Merchant Identity certificate to the URL the
+# browser posts, so only Apple's gateways may receive it: the documented
+# (cn-)apple-pay-gateway(-cert) hosts and the regional pods Safari also hands
+# out (apple-pay-gateway-nc-pod1, cn-apple-pay-gateway-sh-pod1, ...). Matched
+# on the raw string through the first "/", so URL parsers that disagree on
+# "@" or "\" (urllib vs urllib3) cannot see a different host.
+APPLE_PAY_VALIDATION_URL_RE = re.compile(
+    r"https://(?:cn-)?apple-pay-gateway(?:-[a-z0-9-]+)?\.apple\.com/"
+)
 
 # Apple Pay for the Web. The button appears only in Safari on a device that can
 # make payments. onvalidatemerchant and onpaymentauthorized both POST back to
@@ -635,6 +645,14 @@ class PayuProvider(BasicProvider):
         return response.json()
 
     def process_apple_pay_validation(self, payment, validation_url):
+        if not APPLE_PAY_VALIDATION_URL_RE.match(validation_url):
+            logger.warning(
+                "Refusing Apple Pay merchant validation of payment %s: %r is not "
+                "an Apple Pay gateway URL",
+                payment.pk,
+                validation_url,
+            )
+            return HttpResponse("invalid Apple Pay validation URL", status=400)
         return HttpResponse(
             json.dumps(self.validate_apple_pay_merchant(validation_url)),
             content_type="application/json",
