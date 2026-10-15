@@ -1422,8 +1422,8 @@ class TestPayuProvider(TestCase):
         self.assertIn("payu-widget", html)
         self.assertNotIn("apple-pay-button", html)
 
-    def test_apple_pay_merchant_validation(self):
-        """Test that merchant validation POSTs to Apple with the identity cert"""
+    def post_apple_pay_validation_url(self, validation_url):
+        """Send the browser's merchant validation request; return (response, post mock)"""
         self.set_up_provider(
             True,
             True,
@@ -1435,9 +1435,7 @@ class TestPayuProvider(TestCase):
             },
         )
         mocked_request = MagicMock()
-        mocked_request.POST = {
-            "apple_pay_validation_url": "https://apple.example/validate"
-        }
+        mocked_request.POST = {"apple_pay_validation_url": validation_url}
         mocked_request.META = {}
         with patch("requests.post") as mocked_post:
             post = MagicMock()
@@ -1446,21 +1444,71 @@ class TestPayuProvider(TestCase):
             response = self.provider.process_data(
                 payment=self.payment, request=mocked_request
             )
-            self.assertEqual(response.status_code, 200)
-            self.assertEqual(response["Content-Type"], "application/json")
-            self.assertEqual(
-                json.loads(response.content), {"merchantSessionIdentifier": "abc"}
-            )
-            mocked_post.assert_called_once_with(
-                "https://apple.example/validate",
-                json={
-                    "merchantIdentifier": "merchant.com.test",
-                    "displayName": "Test shop",
-                    "initiative": "web",
-                    "initiativeContext": "example.com",
-                },
-                cert=("/tmp/cert.pem", "/tmp/key.pem"),
-            )
+        return response, mocked_post
+
+    def test_apple_pay_merchant_validation(self):
+        """Test that merchant validation POSTs to Apple with the identity cert"""
+        response, mocked_post = self.post_apple_pay_validation_url(
+            "https://apple-pay-gateway.apple.com/paymentservices/paymentSession"
+        )
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response["Content-Type"], "application/json")
+        self.assertEqual(
+            json.loads(response.content), {"merchantSessionIdentifier": "abc"}
+        )
+        mocked_post.assert_called_once_with(
+            "https://apple-pay-gateway.apple.com/paymentservices/paymentSession",
+            json={
+                "merchantIdentifier": "merchant.com.test",
+                "displayName": "Test shop",
+                "initiative": "web",
+                "initiativeContext": "example.com",
+            },
+            cert=("/tmp/cert.pem", "/tmp/key.pem"),
+        )
+
+    def test_apple_pay_merchant_validation_apple_gateway_hosts(self):
+        """Test that every Apple Pay gateway host is accepted for validation"""
+        for host in (
+            "apple-pay-gateway.apple.com",
+            "cn-apple-pay-gateway.apple.com",
+            "apple-pay-gateway-cert.apple.com",
+            "cn-apple-pay-gateway-cert.apple.com",
+            "apple-pay-gateway-nc-pod5.apple.com",
+            "apple-pay-gateway-pr-pod1.apple.com",
+            "cn-apple-pay-gateway-sh-pod1.apple.com",
+        ):
+            with self.subTest(host=host):
+                url = f"https://{host}/paymentservices/startSession"
+                response, mocked_post = self.post_apple_pay_validation_url(url)
+                self.assertEqual(response.status_code, 200)
+                self.assertEqual(mocked_post.call_args.args, (url,))
+
+    def test_apple_pay_merchant_validation_refuses_other_urls(self):
+        """Test that the identity cert is never sent outside Apple's gateways
+
+        The validation URL comes from the browser, so anyone with a payment
+        token could otherwise make the server POST to any URL with the
+        merchant certificate and read the response back.
+        """
+        for url in (
+            "https://apple.example/validate",
+            "http://169.254.169.254/latest/meta-data/",
+            "http://apple-pay-gateway.apple.com/paymentservices/paymentSession",
+            "https://apple-pay-gateway.apple.com:8443/paymentservices/",
+            "https://apple-pay-gateway.apple.com.evil.example/",
+            "https://apple-pay-gateway.apple.com@evil.example/",
+            # urllib reads the host after "@", urllib3 (requests) before "\"
+            "https://evil.example\\@apple-pay-gateway.apple.com/",
+            "https://www.apple.com/",
+            "https://apple-pay-gateway.apple.com",
+            "",
+        ):
+            with self.subTest(url=url):
+                with self.assertLogs("payments_payu.provider", level="WARNING"):
+                    response, mocked_post = self.post_apple_pay_validation_url(url)
+                self.assertEqual(response.status_code, 400)
+                mocked_post.assert_not_called()
 
     def test_process_apple_pay(self):
         """Test processing an Apple Pay token callback with recurring FIRST"""
