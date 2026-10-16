@@ -18,7 +18,9 @@ jobs:
   # This workflow contains a single job called "build"
   tests:
     # The type of runner that the job will run on
-    runs-on: ubuntu-latest
+    # Not ubuntu-latest: it moves to Ubuntu 26.04 from 2026-10-19, and
+    # actions/python-versions has no 3.8/3.9 builds for 26.04.
+    runs-on: ubuntu-24.04
 
     strategy:
       matrix:
