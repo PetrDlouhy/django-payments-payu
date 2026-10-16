@@ -18,36 +18,20 @@ jobs:
   # This workflow contains a single job called "build"
   tests:
     # The type of runner that the job will run on
-    # Not ubuntu-latest: it moves to Ubuntu 26.04 from 2026-10-19, and
-    # actions/python-versions has no 3.8/3.9 builds for 26.04.
-    runs-on: ubuntu-24.04
+    runs-on: ubuntu-latest
 
     strategy:
       matrix:
         # Valid pairs only, per the Django FAQ table "What Python version can
         # I use with Django?" - one line per supported Python of each Django.
         include:
-          - { DJANGO_VERSION: '3.0.*', python-version: '3.8' }
-          - { DJANGO_VERSION: '3.0.*', python-version: '3.9' }
-
-          - { DJANGO_VERSION: '3.1.*', python-version: '3.8' }
-          - { DJANGO_VERSION: '3.1.*', python-version: '3.9' }
-
-          - { DJANGO_VERSION: '3.2.*', python-version: '3.8' }
-          - { DJANGO_VERSION: '3.2.*', python-version: '3.9' }
           - { DJANGO_VERSION: '3.2.*', python-version: '3.10' }
 
-          - { DJANGO_VERSION: '4.0.*', python-version: '3.8' }
-          - { DJANGO_VERSION: '4.0.*', python-version: '3.9' }
           - { DJANGO_VERSION: '4.0.*', python-version: '3.10' }
 
-          - { DJANGO_VERSION: '4.1.*', python-version: '3.8' }
-          - { DJANGO_VERSION: '4.1.*', python-version: '3.9' }
           - { DJANGO_VERSION: '4.1.*', python-version: '3.10' }
           - { DJANGO_VERSION: '4.1.*', python-version: '3.11' }
 
-          - { DJANGO_VERSION: '4.2.*', python-version: '3.8' }
-          - { DJANGO_VERSION: '4.2.*', python-version: '3.9' }
           - { DJANGO_VERSION: '4.2.*', python-version: '3.10' }
           - { DJANGO_VERSION: '4.2.*', python-version: '3.11' }
           - { DJANGO_VERSION: '4.2.*', python-version: '3.12' }
