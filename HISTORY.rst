@@ -2,6 +2,14 @@
 
 History
 -------
+unreleased
+**********
+* Python 3.8 and 3.9 are no longer supported (``python_requires>=3.10``).
+  Both are end-of-life, and GitHub's ``ubuntu-latest`` runner (Ubuntu 26.04
+  from 2026-10-19) no longer provides them, so they can't be tested any more.
+  Django 3.0 and 3.1, which run only on Python 3.9 and older, leave the test
+  matrix with them.
+
 2.7.1 (2026-10-15)
 ******************
 * Apple Pay merchant validation only contacts Apple Pay gateway hosts
