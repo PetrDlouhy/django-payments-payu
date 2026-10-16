@@ -89,13 +89,13 @@ jobs:
           - 5432:5432
 
     steps:
-      - uses: actions/checkout@v2
+      - uses: actions/checkout@v7
 
       - name: Set up Python ${{ matrix.python-version }}
-        uses: actions/setup-python@v2
+        uses: actions/setup-python@v7
         with:
               python-version: ${{ matrix.python-version }}
-      - uses: actions/cache@v4
+      - uses: actions/cache@v6
         with:
           path: ~/.cache/pip
           key: ${{ hashFiles('setup.py') }}-${{ matrix.DJANGO_VERSION }}
@@ -120,7 +120,7 @@ jobs:
       # The legacy `codecov` PyPI uploader is shut down - its uploads silently
       # disappeared (retries + dead v2 fallback), leaving stale PR reports.
       - name: Upload coverage to Codecov
-        uses: codecov/codecov-action@v5
+        uses: codecov/codecov-action@v7
         with:
           files: ./coverage.xml
           # Tokenless uploads are discarded for same-repo branches - the
@@ -130,10 +130,12 @@ jobs:
   lint:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v2
+      - uses: actions/checkout@v7
       - name: Set up Python
-        uses: actions/setup-python@v2
-      - uses: actions/cache@v4
+        uses: actions/setup-python@v7
+        with:
+          python-version: '3.14'
+      - uses: actions/cache@v6
         with:
           path: ~/.cache/pip
           key: ${{ hashFiles('setup.py') }}-${{ matrix.DJANGO_VERSION }}
