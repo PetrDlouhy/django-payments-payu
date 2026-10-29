@@ -2,8 +2,8 @@
 
 History
 -------
-unreleased
-**********
+2.8.0 (2026-10-29)
+******************
 * Python 3.8 and 3.9 are no longer supported (``python_requires>=3.10``).
   Both are end-of-life, and GitHub's ``ubuntu-latest`` runner (Ubuntu 26.04
   from 2026-10-19) no longer provides them, so they can't be tested any more.
