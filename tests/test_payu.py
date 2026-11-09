@@ -23,6 +23,7 @@ from payments_payu.provider import (
     PaymentProcessor,
     PayuApiError,
     PayuProvider,
+    PayuUnavailableError,
     add_extra_data,
     add_new_status,
 )
@@ -309,6 +310,8 @@ class TestPayuProvider(TestCase):
                 express_payments=express,
                 **kwargs,
             )
+            # The access token is fetched lazily; prime it like a first API call.
+            self.provider.get_token_headers()
 
     def test_redirect_to_recurring_payment(self):
         """Test that if the payment recurrence is set, the user is redirected to renew payment form"""
@@ -3730,3 +3733,170 @@ class TestPayuProvider(TestCase):
                     "Content-Type": "application/json",
                 },
             )
+
+
+MAINTENANCE_PAGE = "<html><head><title>PayU - System maintenance</title></head></html>"
+
+
+def mock_response(status_code, text):
+    response = MagicMock()
+    response.status_code = status_code
+    response.text = text
+    return response
+
+
+class TestPayuUnavailable(TestCase):
+    """PayU outages (maintenance page, 5xx, network errors) raise PayuUnavailableError."""
+
+    def make_provider(self):
+        return PayuProvider(
+            client_secret=SECRET,
+            second_key=SECOND_KEY,
+            pos_id=POS_ID,
+            base_payu_url="http://mock.url/",
+            get_refund_description=lambda payment, amount: "test",
+        )
+
+    def test_init_does_not_contact_payu(self):
+        with patch("requests.post") as mocked_post:
+            mocked_post.return_value = mock_response(503, MAINTENANCE_PAGE)
+            provider = self.make_provider()
+        mocked_post.assert_not_called()
+        self.assertIsNone(provider.token)
+
+    def test_access_token_is_fetched_on_first_api_call_only(self):
+        provider = self.make_provider()
+        with patch("requests.post") as mocked_post, patch(
+            "requests.delete"
+        ) as mocked_delete:
+            mocked_post.return_value = mock_response(
+                200, '{"access_token": "lazy_token"}'
+            )
+            mocked_delete.return_value = mock_response(204, "")
+            self.assertTrue(provider.delete_card_token("FOO_TOKEN"))
+            self.assertTrue(provider.delete_card_token("BAR_TOKEN"))
+        mocked_post.assert_called_once()
+        mocked_delete.assert_called_with(
+            "http://mock.url/api/v2_1/tokens/BAR_TOKEN",
+            headers={
+                "Authorization": "Bearer lazy_token",
+                "Content-Type": "application/json",
+            },
+        )
+
+    def test_maintenance_page_from_auth_endpoint(self):
+        provider = self.make_provider()
+        for status_code in (200, 503):
+            with self.subTest(status_code=status_code), patch(
+                "requests.post"
+            ) as mocked_post:
+                mocked_post.return_value = mock_response(status_code, MAINTENANCE_PAGE)
+                with self.assertRaises(PayuUnavailableError) as context:
+                    provider.get_access_token(POS_ID, SECRET)
+                self.assertEqual(context.exception.status_code, status_code)
+                self.assertIn("System maintenance", context.exception.body)
+
+    def test_unavailable_body_excerpt_is_short(self):
+        provider = self.make_provider()
+        with patch("requests.post") as mocked_post:
+            mocked_post.return_value = mock_response(503, "x" * 10000)
+            with self.assertRaises(PayuUnavailableError) as context:
+                provider.get_access_token(POS_ID, SECRET)
+        self.assertEqual(len(context.exception.body), 200)
+
+    def test_auth_server_error_with_json_body_is_unavailable(self):
+        provider = self.make_provider()
+        with patch("requests.post") as mocked_post:
+            mocked_post.return_value = mock_response(500, '{"status": 500}')
+            with self.assertRaises(PayuUnavailableError):
+                provider.get_access_token(POS_ID, SECRET)
+
+    def test_auth_rejection_is_not_unavailable(self):
+        provider = self.make_provider()
+        with patch("requests.post") as mocked_post:
+            mocked_post.return_value = mock_response(401, '{"error": "invalid_client"}')
+            with self.assertRaises(PayuApiError) as context:
+                provider.get_access_token(POS_ID, SECRET)
+        self.assertNotIsInstance(context.exception, PayuUnavailableError)
+
+    def test_network_errors_are_unavailable(self):
+        provider = self.make_provider()
+        for error in (requests.ConnectionError("refused"), requests.Timeout("slow")):
+            with self.subTest(error=error), patch("requests.post", side_effect=error):
+                with self.assertRaises(PayuUnavailableError):
+                    provider.get_access_token(POS_ID, SECRET)
+
+    def test_post_request_maintenance_page(self):
+        provider = self.make_provider()
+        provider.token = "cached_token"
+        with patch("requests.post") as mocked_post:
+            mocked_post.return_value = mock_response(503, MAINTENANCE_PAGE)
+            with self.assertRaises(PayuUnavailableError) as context:
+                provider.post_request("http://mock.url/api/v2_1/orders/")
+        self.assertEqual(context.exception.status_code, 503)
+
+    def test_post_request_token_refresh_during_maintenance(self):
+        provider = self.make_provider()
+        provider.token = "expired_token"
+        with patch("requests.post") as mocked_post:
+            mocked_post.side_effect = [
+                mock_response(401, '{"error": "invalid_token"}'),
+                mock_response(503, MAINTENANCE_PAGE),
+            ]
+            with self.assertRaises(PayuUnavailableError):
+                provider.post_request("http://mock.url/api/v2_1/orders/", data="{}")
+
+    def test_post_request_network_error(self):
+        provider = self.make_provider()
+        provider.token = "cached_token"
+        with patch("requests.post", side_effect=requests.Timeout("slow")):
+            with self.assertRaises(PayuUnavailableError):
+                provider.post_request("http://mock.url/api/v2_1/orders/", "{}")
+
+    def test_delete_card_token_maintenance_page(self):
+        provider = self.make_provider()
+        provider.token = "cached_token"
+        with patch("requests.delete") as mocked_delete:
+            mocked_delete.return_value = mock_response(503, MAINTENANCE_PAGE)
+            with self.assertRaises(PayuUnavailableError):
+                provider.delete_card_token("FOO_TOKEN")
+
+    def test_delete_card_token_network_error(self):
+        provider = self.make_provider()
+        provider.token = "cached_token"
+        with patch("requests.delete", side_effect=requests.ConnectionError("down")):
+            with self.assertRaises(PayuUnavailableError):
+                provider.delete_card_token("FOO_TOKEN")
+
+    def test_delete_card_token_refreshes_expired_access_token(self):
+        """A cached token older than PayU's ~12h lifetime is answered with 401."""
+        provider = self.make_provider()
+        provider.token = "expired_token"
+        with patch("requests.post") as mocked_post, patch(
+            "requests.delete"
+        ) as mocked_delete:
+            mocked_post.return_value = mock_response(
+                200, '{"access_token": "fresh_token"}'
+            )
+            mocked_delete.side_effect = [
+                mock_response(401, '{"error": "invalid_token"}'),
+                mock_response(204, ""),
+            ]
+            self.assertTrue(provider.delete_card_token("FOO_TOKEN"))
+        self.assertEqual(provider.token, "fresh_token")
+        mocked_delete.assert_called_with(
+            "http://mock.url/api/v2_1/tokens/FOO_TOKEN",
+            headers={
+                "Authorization": "Bearer fresh_token",
+                "Content-Type": "application/json",
+            },
+        )
+
+    def test_delete_card_token_rejection_returns_false(self):
+        provider = self.make_provider()
+        provider.token = "cached_token"
+        with patch("requests.delete") as mocked_delete:
+            mocked_delete.return_value = mock_response(
+                404, '{"status": {"statusCode": "DATA_NOT_FOUND"}}'
+            )
+            self.assertFalse(provider.delete_card_token("FOO_TOKEN"))
