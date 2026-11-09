@@ -3349,6 +3349,55 @@ class TestPayuProvider(TestCase):
         self.assertEqual(self.payment.status, PaymentStatus.ERROR)
         self.assertIs(self.payment.renew_token_invalidated, True)
 
+    def _renew_with_response(self, response_body):
+        with patch("requests.post") as mocked_post:
+            post = MagicMock()
+            post.text = json.dumps(response_body)
+            post.status_code = 400
+            mocked_post.return_value = post
+            self.provider.process_data(payment=self.payment, request=mocked_post)
+
+    def test_renew_with_unverified_first_payment_invalidates_renew_token(self):
+        """PayU refuses every merchant-initiated charge on a token whose first
+        payment was never verified (code 108) - retrying can never succeed, so
+        the token is as dead as an INVALID_TOKEN one."""
+        self.set_up_provider(
+            True, True, get_refund_description=lambda payment, amount: "test"
+        )
+        self._renew_with_response(
+            {
+                "status": {
+                    "statusCode": "ERROR_VALUE_INVALID",
+                    "code": "108",
+                    "codeLiteral": "ERROR_VALUE_INVALID",
+                    "statusDesc": "Wrong params. You're trying to send MIT/Recurring "
+                    "request for non-verified first payment (recurring=true, "
+                    "cardOnFile=null, firstPaymentVerified=false)",
+                }
+            }
+        )
+        self.assertEqual(self.payment.status, PaymentStatus.ERROR)
+        self.assertIs(self.payment.renew_token_invalidated, True)
+
+    def test_renew_with_other_wrong_params_keeps_renew_token(self):
+        """Code 108 is PayU's generic "wrong params": a bad request of ours must
+        not drop every member's card."""
+        self.set_up_provider(
+            True, True, get_refund_description=lambda payment, amount: "test"
+        )
+        self._renew_with_response(
+            {
+                "status": {
+                    "statusCode": "ERROR_VALUE_INVALID",
+                    "code": "108",
+                    "codeLiteral": "ERROR_VALUE_INVALID",
+                    "statusDesc": "Wrong params. currencyCode is invalid",
+                }
+            }
+        )
+        self.assertEqual(self.payment.status, PaymentStatus.ERROR)
+        self.assertIs(self.payment.renew_token_invalidated, False)
+
     def test_create_order_business_error_keeps_renew_token(self):
         """A non-token error (e.g. antifraud) must not drop the renew token."""
         self.set_up_provider(

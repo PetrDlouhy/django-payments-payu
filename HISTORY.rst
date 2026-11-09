@@ -2,6 +2,15 @@
 
 History
 -------
+Unreleased
+**********
+* A charge on a stored card token that PayU refuses because the token's
+  first payment was never verified (code 108, ``firstPaymentVerified=false``)
+  now invalidates the renew token, like ``INVALID_TOKEN``. PayU refuses every
+  merchant-initiated charge on such a token, so renewals retried it forever
+  and the saved-card button kept offering it. Other code 108 errors keep the
+  token.
+
 2.8.0 (2026-10-29)
 ******************
 * Python 3.8 and 3.9 are no longer supported (``python_requires>=3.10``).
