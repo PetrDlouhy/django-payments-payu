@@ -2,8 +2,8 @@
 
 History
 -------
-Unreleased
-**********
+2.8.1 (2026-11-09)
+******************
 * A charge on a stored card token that PayU refuses because the token's
   first payment was never verified (code 108, ``firstPaymentVerified=false``)
   now invalidates the renew token, like ``INVALID_TOKEN``. PayU refuses every
