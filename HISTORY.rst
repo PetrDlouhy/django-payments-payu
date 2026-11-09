@@ -2,6 +2,24 @@
 
 History
 -------
+unreleased
+**********
+* ``PayuProvider`` no longer fetches the OAuth access token in ``__init__``;
+  it is fetched on the first API call. During PayU maintenance the auth
+  endpoint answers with an HTML page, so building the provider - which hosts
+  do for every payment page - failed with an unhandled error before any page
+  could tell the buyer what was going on.
+* new ``PayuUnavailableError(PayuApiError)`` for PayU outages: a non-JSON
+  body (maintenance/proxy error page), HTTP 5xx from the auth or token
+  endpoints, and ``requests`` connection errors/timeouts. It carries
+  ``status_code`` and a 200-character ``body`` excerpt, so hosts can show
+  "try again later" instead of treating the outage as an API rejection.
+  Existing ``except PayuApiError`` handlers keep catching it.
+* ``delete_card_token`` refreshes an expired access token (HTTP 401) once
+  and retries; it used to return ``False`` for every call made more than
+  ~12 hours after the provider was built. It raises ``PayuUnavailableError``
+  on 5xx/network errors instead of returning ``False``.
+
 2.8.1 (2026-11-09)
 ******************
 * A charge on a stored card token that PayU refuses because the token's

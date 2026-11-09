@@ -436,6 +436,34 @@ class PayuApiError(Exception):
     pass
 
 
+class PayuUnavailableError(PayuApiError):
+    """PayU is down or unreachable (maintenance page, HTTP 5xx, network error).
+
+    The request was not rejected by the API and may succeed when retried later.
+    """
+
+    def __init__(self, message, status_code=None, body=""):
+        super().__init__(message)
+        self.status_code = status_code
+        self.body = body
+
+
+def _unavailable_error(response, reason):
+    body = response.text[:200]
+    return PayuUnavailableError(
+        f"{reason} from PayU: HTTP {response.status_code}, body: {body!r}",
+        status_code=response.status_code,
+        body=body,
+    )
+
+
+def _send(method, url, *args, **kwargs):
+    try:
+        return method(url, *args, **kwargs)
+    except (requests.ConnectionError, requests.Timeout) as e:
+        raise PayuUnavailableError(f"PayU is unreachable: {e}") from e
+
+
 class PayuProvider(BasicProvider):
     def __init__(self, *args, **kwargs):
         self.client_secret = kwargs.pop("client_secret")
@@ -497,9 +525,9 @@ class PayuProvider(BasicProvider):
         self.retry_count = 5
 
         self.pos_id = kwargs.pop("pos_id")
-        self.token = self.get_access_token(
-            self.pos_id, self.client_secret, grant_type=self.grant_type
-        )
+        # Fetched on first API use: providers are built (and cached) for every
+        # payment page, which must not fail just because PayU is down.
+        self.token = None
         self.get_buyer_language = kwargs.pop(
             "get_buyer_language",
             lambda payment: "en",
@@ -832,16 +860,13 @@ class PayuProvider(BasicProvider):
     def post_request(self, url, *args, **kwargs):
         for i in range(1, self.retry_count):
             kwargs["headers"] = self.get_token_headers()
-            response = requests.post(url, *args, **kwargs)
+            response = _send(requests.post, url, *args, **kwargs)
             try:
                 response_dict = json.loads(response.text)
             except ValueError as e:
-                # Gateway-level failures (e.g. an HTML 502 page from a proxy)
-                # are not JSON; surface them as the provider's own exception.
-                raise PayuApiError(
-                    f"Non-JSON response from PayU: HTTP {response.status_code}, "
-                    f"body: {response.text[:200]!r}"
-                ) from e
+                # Gateway-level failures (e.g. an HTML 502 page from a proxy,
+                # the maintenance page) are not JSON.
+                raise _unavailable_error(response, "Non-JSON response") from e
             # On gateway errors "status" can be a plain integer HTTP code
             # ('{"status": 500}') instead of the usual status dict.
             response_status = response_dict.get("status")
@@ -850,9 +875,9 @@ class PayuProvider(BasicProvider):
                 and response_status.get("statusCode") == "UNAUTHORIZED"
             ):
                 try:
-                    self.token = self.get_access_token(
-                        self.pos_id, self.client_secret, grant_type=self.grant_type
-                    )
+                    self._refresh_access_token()
+                except PayuUnavailableError:
+                    raise
                 except PayuApiError as e:
                     raise PayuApiError(f"Unable to regain authorization token {e}")
             else:
@@ -887,19 +912,27 @@ class PayuProvider(BasicProvider):
         headers = {
             "Content-Type": "application/x-www-form-urlencoded",
         }
-        response = requests.post(payu_auth_url, data=data, headers=headers)
-
+        response = _send(requests.post, payu_auth_url, data=data, headers=headers)
+        if response.status_code >= 500:
+            raise _unavailable_error(response, "Server error")
         try:
             response_dict = json.loads(response.text)
-        except json.JSONDecodeError:
-            raise PayuApiError(response.text)
+        except json.JSONDecodeError as e:
+            raise _unavailable_error(response, "Non-JSON response") from e
 
         try:
             return response_dict["access_token"]
         except (KeyError, ValueError):
             raise PayuApiError(response_dict)
 
+    def _refresh_access_token(self):
+        self.token = self.get_access_token(
+            self.pos_id, self.client_secret, grant_type=self.grant_type
+        )
+
     def get_token_headers(self):
+        if self.token is None:
+            self._refresh_access_token()
         return {
             "Content-Type": "application/json",
             "Authorization": "Bearer %s" % self.token,
@@ -909,10 +942,19 @@ class PayuProvider(BasicProvider):
         "Deactivate card token on PayU"
 
         payu_delete_token_url = urljoin(self.payu_token_url, card_token)
-        response = requests.delete(
-            payu_delete_token_url, headers=self.get_token_headers()
+        response = _send(
+            requests.delete, payu_delete_token_url, headers=self.get_token_headers()
         )
-
+        if response.status_code == 401:
+            # The cached access token expired (PayU issues them for ~12h).
+            self._refresh_access_token()
+            response = _send(
+                requests.delete,
+                payu_delete_token_url,
+                headers=self.get_token_headers(),
+            )
+        if response.status_code >= 500:
+            raise _unavailable_error(response, "Server error")
         return response.status_code == 204
 
     def _redirect_for_existing_order(self, payment, auto_renew):
