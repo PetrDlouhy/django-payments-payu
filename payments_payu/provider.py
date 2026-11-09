@@ -49,6 +49,26 @@ CENTS = Decimal("0.01")
 # PayU error codeLiterals that mean the stored card token can never work
 # again (as opposed to retryable declines like insufficient funds).
 PERMANENT_TOKEN_ERROR_LITERALS = frozenset({"INVALID_TOKEN"})
+# A token whose first payment PayU never verified is refused for every
+# merchant-initiated charge. It arrives as the generic code 108 "Wrong params",
+# so it is told apart by its description - an unrelated bad parameter of ours
+# must not drop every member's card.
+UNVERIFIED_FIRST_PAYMENT_CODE = "108"
+UNVERIFIED_FIRST_PAYMENT_DESC = "firstPaymentVerified=false"
+
+
+def is_permanent_token_error(response_status):
+    """Whether PayU's error means the stored card token can never be charged."""
+    if not isinstance(response_status, dict):
+        return False
+    if response_status.get("codeLiteral") in PERMANENT_TOKEN_ERROR_LITERALS:
+        return True
+    description = response_status.get("statusDesc") or ""
+    return (
+        response_status.get("code") == UNVERIFIED_FIRST_PAYMENT_CODE
+        and UNVERIFIED_FIRST_PAYMENT_DESC in description
+    )
+
 
 GOOGLE_PAY_ALLOWED_AUTH_METHODS = ["PAN_ONLY", "CRYPTOGRAM_3DS"]
 GOOGLE_PAY_ALLOWED_CARD_NETWORKS = ["MASTERCARD", "VISA"]
@@ -1035,10 +1055,7 @@ class PayuProvider(BasicProvider):
                 response_dict,
             )
             return ""
-        if (
-            isinstance(response_status, dict)
-            and response_status.get("codeLiteral") in PERMANENT_TOKEN_ERROR_LITERALS
-        ):
+        if is_permanent_token_error(response_status):
             # The stored card token is permanently dead (e.g. deactivated at
             # PayU) - retrying it can never succeed. Drop it so renewal tasks
             # stop selecting the account and interactive users get a fresh
@@ -1049,7 +1066,8 @@ class PayuProvider(BasicProvider):
                 logger.info(
                     "Invalidated the renew token of payment %s after %s",
                     payment.pk,
-                    response_status.get("codeLiteral"),
+                    response_status.get("statusDesc")
+                    or response_status.get("codeLiteral"),
                 )
             else:
                 logger.warning(
