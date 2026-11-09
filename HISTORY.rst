@@ -2,8 +2,8 @@
 
 History
 -------
-unreleased
-**********
+2.9.0 (2026-11-09)
+******************
 * ``PayuProvider`` no longer fetches the OAuth access token in ``__init__``;
   it is fetched on the first API call. During PayU maintenance the auth
   endpoint answers with an HTML page, so building the provider - which hosts
