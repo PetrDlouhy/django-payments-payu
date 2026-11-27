@@ -456,7 +456,9 @@ class PayuRefundRejectedError(ValueError):
     rejection apart from an unexpected answer and react to the reason.
     """
 
-    def __init__(self, message, code="", status_code="", code_literal="", status_desc=""):
+    def __init__(
+        self, message, code="", status_code="", code_literal="", status_desc=""
+    ):
         super().__init__(message)
         self.code = code
         self.status_code = status_code
