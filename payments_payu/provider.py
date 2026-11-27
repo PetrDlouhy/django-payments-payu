@@ -448,6 +448,22 @@ class PayuUnavailableError(PayuApiError):
         self.body = body
 
 
+class PayuRefundRejectedError(ValueError):
+    """PayU answered a refund request with a non-SUCCESS status: no refund was created.
+
+    Carries the status fields of PayU's answer (``code_literal`` is e.g. ``NO_BALANCE``
+    while the shop's available balance can't cover the refund), so hosts can tell the
+    rejection apart from an unexpected answer and react to the reason.
+    """
+
+    def __init__(self, message, code="", status_code="", code_literal="", status_desc=""):
+        super().__init__(message)
+        self.code = code
+        self.status_code = status_code
+        self.code_literal = code_literal
+        self.status_desc = status_desc
+
+
 def _unavailable_error(response, reason):
     body = response.text[:200]
     return PayuUnavailableError(
@@ -1396,12 +1412,16 @@ class PayuProvider(BasicProvider):
                 f"invalid response to refund {refund_id or '???'} of payment {payment.id}: {response}"
             )
         if response_status_code != "SUCCESS":
-            raise ValueError(
+            raise PayuRefundRejectedError(
                 f"refund {refund_id or '???'} of payment {payment.id} failed: "
                 f"code={response_status.get('code', '???')}, "
                 f"statusCode={response_status_code}, "
                 f"codeLiteral={response_status.get('codeLiteral', '???')}, "
-                f"statusDesc={response_status.get('statusDesc', '???')}"
+                f"statusDesc={response_status.get('statusDesc', '???')}",
+                code=response_status.get("code", ""),
+                status_code=response_status_code,
+                code_literal=response_status.get("codeLiteral", ""),
+                status_desc=response_status.get("statusDesc", ""),
             )
         if refund_id is None:
             raise PayuApiError(
