@@ -23,6 +23,7 @@ from payments_payu.provider import (
     PaymentProcessor,
     PayuApiError,
     PayuProvider,
+    PayuRefundRejectedError,
     PayuUnavailableError,
     add_extra_data,
     add_new_status,
@@ -2989,14 +2990,25 @@ class TestPayuProvider(TestCase):
         )
 
         with self.assertRaisesRegex(
-            ValueError,
+            PayuRefundRejectedError,
             r"refund \?\?\? of payment 1 failed: code=9102, "
             r"statusCode=OPENPAYU_BUSINESS_ERROR, "
             r"codeLiteral=NO_BALANCE, "
             r"statusDesc=Lack of funds in account",
-        ):
+        ) as raised:
             with refund_request_patch as refund_request_mock:
                 self.provider.refund(self.payment, Decimal(110))
+
+        self.assertIsInstance(raised.exception, ValueError)
+        self.assertEqual(
+            (
+                raised.exception.code,
+                raised.exception.status_code,
+                raised.exception.code_literal,
+                raised.exception.status_desc,
+            ),
+            ("9102", "OPENPAYU_BUSINESS_ERROR", "NO_BALANCE", "Lack of funds in account"),
+        )
 
         self.assertEqual(refund_request_mock.call_count, 1)
         self.assertEqual(self.payment.total, Decimal(220))

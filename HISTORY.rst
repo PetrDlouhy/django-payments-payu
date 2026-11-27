@@ -2,6 +2,16 @@
 
 History
 -------
+unreleased
+**********
+* new ``PayuRefundRejectedError(ValueError)``, raised by ``refund()`` when PayU
+  answers with a non-SUCCESS status, i.e. it created no refund. It carries
+  ``code``, ``status_code``, ``code_literal`` and ``status_desc`` of the
+  answer (e.g. ``NO_BALANCE`` while the shop's available balance can't cover
+  the refund), so hosts can tell a rejection from an unexpected answer
+  without parsing the message. The message is unchanged and existing
+  ``except ValueError`` handlers keep catching it.
+
 2.9.0 (2026-11-09)
 ******************
 * ``PayuProvider`` no longer fetches the OAuth access token in ``__init__``;
